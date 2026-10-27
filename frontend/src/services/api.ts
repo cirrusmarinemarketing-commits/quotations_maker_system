@@ -220,6 +220,13 @@ export type LoginResult = {
 
 // Cost & Profit report (claude_prompt.txt) -- mirrors
 // ems-backend's cost-profit-calculator.ts output shape exactly.
+
+// claude_prompt.txt ("Cost & Profit report: list quotations of every
+// status, count only accepted ones in all totals"): the real, full
+// `sales.quotation_status` enum (ems-backend's QuotationStatusFilter,
+// read from the live DB catalog) -- was 'accepted' | 'sent'.
+export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
+
 export type CostProfitTotals = {
   // claude_prompt.txt (this round, "revenue = stored total due"): no longer
   // computed from lines -- at quotation level this is simply the stored
@@ -238,7 +245,11 @@ export type CostProfitTotals = {
   // whenever revenue is null (no replacement computation).
   profitQuoted: number | null
   profitBank: number | null
-  bufferGain: number
+  // claude_prompt.txt ("Cost & Profit report: list quotations of every
+  // status, count only accepted ones in all totals"): widened to `| null`
+  // -- at project/grand level, null when no accepted quotation
+  // contributed to this bucket (decision 5: "--", not 0.00).
+  bufferGain: number | null
   linesWithoutCost: number
   // claude_prompt.txt (this round): informational only now -- shipping and
   // import tax ARE counted in revenue/cost/profit/margin above; these two
@@ -267,6 +278,10 @@ export type CostProfitLine = {
   // reference rows"): per-item import tax ('part' lines only; null for
   // 'stock' lines and every other kind, or when the lot has no import tax).
   importTaxAmount: number | null
+  // claude_prompt.txt ("Cost & Profit report: export one quotation as
+  // PDF"): per-unit THB cost ("Cost price THB Per Unit" PDF column),
+  // 'part'/'stock' lines only, null otherwise.
+  unitCostThb: number | null
 }
 export type CostProfitGroup = {
   kind: 'external' | 'stock' | 'other'
@@ -322,19 +337,40 @@ export type CostProfitDiscountScenario = {
 // Quotation-total/Revenue/Cost/Profit bundle -- kept separate from
 // CostProfitTotals (which the dashboard reads unchanged) so this page can
 // show its own two totals without affecting the dashboard's numbers.
+// claude_prompt.txt ("Cost & Profit report: list quotations of every
+// status, count only accepted ones in all totals"): every field widened
+// to `| null` -- at project/grand level, null when no accepted quotation
+// contributed (decision 5: project header cells show "--"). At
+// quotation level only `quotationTotal` is ever actually null in
+// practice (unchanged); the wider type just lets the same type serve
+// both levels.
 export type CostProfitTwoTotals = {
   quotationTotal: number | null
-  revenue: number
-  costQuoted: number
-  costBank: number
-  profitQuoted: number
-  profitBank: number
+  revenue: number | null
+  costQuoted: number | null
+  costBank: number | null
+  profitQuoted: number | null
+  profitBank: number | null
 }
 
 export type CostProfitQuotation = {
   id: string
   number: string
-  status: 'accepted' | 'sent'
+  // claude_prompt.txt ("Cost & Profit report: export one quotation as
+  // PDF"): straight pass-through of `sales.quotations.description`.
+  description: string | null
+  // claude_prompt.txt ("Cost & Profit PDF export: fixes"), rule 3: new
+  // read-only field -- straight pass-through of `sales.quotations.issue_date`.
+  // Used by the PDF's top-right header (fix 3); NOT the same as statusDate
+  // below (accepted_at/sent_at-derived, unchanged).
+  issueDate: string
+  // claude_prompt.txt ("Cost & Profit PDF: header date = the quotation's
+  // updated date"): new read-only field -- Bangkok calendar date (YYYY-MM-DD)
+  // of `sales.quotations.updated_at`. The PDF header's "Date:" now reads
+  // this instead of issueDate (which stays on the response, unused by that
+  // one spot from now on).
+  updatedAt: string | null
+  status: QuotationStatus
   statusDate: string
   statusDateEstimated: boolean
   totals: CostProfitTotals
@@ -371,7 +407,7 @@ export type CostProfitProject = {
 }
 export type CostProfitReport = {
   month: string
-  statuses: ('accepted' | 'sent')[]
+  statuses: QuotationStatus[]
   totals: CostProfitTotals
   twoTotals: CostProfitTwoTotals
   profitExcelBasisQuoted: number
@@ -440,7 +476,7 @@ export const api = {
   login: (email: string, password: string): Promise<LoginResult> =>
     request(`${EMS_BASE}/auth/login`, { method: 'POST', body: JSON.stringify({ email, password }), credentials: 'include' }),
 
-  getCostProfit: (month: string, statuses: ('accepted' | 'sent')[]): Promise<CostProfitReport> =>
+  getCostProfit: (month: string, statuses: QuotationStatus[]): Promise<CostProfitReport> =>
     request(`${EMS_BASE}/sales/reports/cost-profit?month=${encodeURIComponent(month)}&statuses=${statuses.join(',')}`),
 
   getCostProfitMonthly: (month: string, months = 7): Promise<CostProfitMonthlyReport> =>

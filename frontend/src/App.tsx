@@ -112,7 +112,7 @@ function App() {
   // detectShippingRule(), matching the stored header shipping total so an
   // old quotation never silently switches rules even if its shipping
   // inputs are edited afterwards.
-  const [shippingRule, setShippingRule] = useState<ShippingRule>('B')
+  const [shippingRule, setShippingRule] = useState<ShippingRule>('A')
   const [stockPickerOpen, setStockPickerOpen] = useState(false)
   const [externalFormOpen, setExternalFormOpen] = useState(false)
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null)
@@ -434,7 +434,8 @@ function App() {
         // once here by matching the stored header shipping total -- never
         // re-derived afterwards, so later edits to shipping inputs in this
         // same session never silently flip the rule.
-        setShippingRule(detectShippingRule(loadedGroups, Number(quotation.shipping_total || 0)))
+        // setShippingRule(detectShippingRule(loadedGroups, Number(quotation.shipping_total || 0)))
+        setShippingRule('A')
 
         const savedCtlState = data.ctlState ?? {}
         const savedCtlItems = data.ctlItems ?? []

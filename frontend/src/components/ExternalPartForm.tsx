@@ -98,6 +98,7 @@ function createEmptyPart(rate = 1, currency: CurrencyCode = 'THB'): ExternalPart
     unitCost,
     unitCostTHB,
     unitPrice: calculateSellingPrice(unitCostTHB, DEFAULT_MARKUP, currency),
+    unit: 'EA'
   })
 }
 export default function ExternalPartForm({
@@ -298,18 +299,34 @@ export default function ExternalPartForm({
   //   () => roundDecimal(partsSubtotal + shippingTotal + importTax, 6),
   //   [partsSubtotal, shippingTotal, importTax]
   // )
+  // claude_prompt.txt, fix 2: "A group opened for editing keeps its stored
+  // initialGroup.transferFee when it is re-saved ... A stored null still
+  // falls back to the currency default, a new group still uses the currency
+  // default, and if the user changes the currency of an existing group the
+  // new currency's default applies." `initialGroup` only carries the
+  // ORIGINAL currency's fee -- once the user picks a different currency,
+  // that stored THB/SGD/etc. figure is no longer meaningful, so this reverts
+  // to null (which lotShipping() below already resolves to the new
+  // currency's own default) the moment `currency` no longer matches
+  // `initialGroup.currency`. A brand-new group (`initialGroup` unset) is
+  // null from the start, same as before.
+  const storedTransferFee =
+    initialGroup && currency === initialGroup.currency ? initialGroup.transferFee ?? null : null
   const onQuotationShipping = useMemo(
     () =>
-      customerShippingForQuotation({
-        parts,
-        shippingCost,
-        containsStockItems,
-        currency,
-        exchangeRate: exchangeRate ?? 0,
-        shippingCostFc,
-        transferFee: null,
-      }),
-    [parts, shippingCost, shippingCostFc, containsStockItems, currency, exchangeRate]
+      customerShippingForQuotation(
+        {
+          parts,
+          shippingCost,
+          containsStockItems,
+          currency,
+          exchangeRate: exchangeRate ?? 0,
+          shippingCostFc,
+          transferFee: storedTransferFee,
+        },
+        'A'
+      ),
+    [parts, shippingCost, shippingCostFc, containsStockItems, currency, exchangeRate, storedTransferFee]
   )
   const onQuotationImportTax = calculatedImportTax
   const groupTotal = useMemo(
@@ -328,19 +345,13 @@ export default function ExternalPartForm({
         shippingCostFc,
         rate: currency === 'THB' ? 1 : exchangeRate ?? 0,
         currency,
-        transferFee: null,
+        transferFee: storedTransferFee,
+        rule: 'A',
       }),
-    [shippingCostFc, exchangeRate, currency]
+    [shippingCostFc, exchangeRate, currency, storedTransferFee]
   )
-  const shippingBeforeRounding = roundDecimal(
-    shippingBreakdown.shippingThb * (1 + VAT_RATE) +
-    (shippingBreakdown.transferFeeApplied ?? 0),
-    3
-  )
-  const shippingRoundingAdjustment = roundDecimal(
-    shippingBreakdown.customerShipping - shippingBeforeRounding,
-    3
-  )
+  const shippingBeforeRounding = roundDecimal(shippingBreakdown.shippingThb * (1 + VAT_RATE) + (shippingBreakdown.transferFeeApplied ?? 0), 3)
+  const shippingRoundingAdjustment = roundDecimal(shippingBreakdown.customerShipping - shippingBeforeRounding, 3)
   const validationErrors = useMemo<ValidationError[]>(
     () =>
       validateExternalGroup({
@@ -359,7 +370,9 @@ export default function ExternalPartForm({
         currency,
         exchangeRate: exchangeRate ?? 0,
         actualExchangeRate: actualExchangeRate ?? 0,
-        exchangeRateDate: null,
+        // claude_prompt.txt, fix 4: "pass the selected date state (rateDate;
+        // null when the group is THB or has no date) instead of null."
+        exchangeRateDate: currency === 'THB' ? null : rateDate || null,
         shippingCostFc,
         importTaxPercent: initialGroup?.importTaxPercent ?? null,
         transferFee: initialGroup?.transferFee ?? null,
@@ -380,6 +393,7 @@ export default function ExternalPartForm({
       actualExchangeRate,
       initialGroup,
       shippingCostFc,
+      rateDate,
     ]
   )
   const errorsByPart = useMemo(() => {
@@ -393,11 +407,12 @@ export default function ExternalPartForm({
   const addPart = useCallback(() => {
     const newPart: ExternalPart = {
       ...createEmptyPart(exchangeRate ?? 0, currency),
-      unit: units.length > 0 ? units[0].abbreviation : '',
+      unit: 'EA',
     }
+
     setParts((prev) => [...prev, newPart])
     setPendingFocusPartId(newPart.id)
-  }, [units, exchangeRate, currency])
+  }, [exchangeRate, currency])
   const updatePart = useCallback(
     (id: string, patch: Partial<ExternalPart>) => {
       setParts((prev) =>
@@ -434,24 +449,29 @@ export default function ExternalPartForm({
     if (value === 'local_purchase') setShippingCost(0)
   }, [])
 
+  // claude_prompt.txt ("Fix: ExternalPartForm exchange rate, buffer, transfer
+  // fee, rate date in validation"), fix 3: "when actualExchangeRate is null,
+  // exchangeRate stays as it is ... never 0" and "When rateSource is
+  // 'manual', a buffer change changes only bufferPercent; exchangeRate and
+  // actualExchangeRate are not touched." Previously the `rateSource ===
+  // 'manual' || actualExchangeRate == null` branch called
+  // `applyBuffer(actualExchangeRate, nextBuffer)` even when
+  // `actualExchangeRate` was null -- `null * (1 + buffer/100)` coerces to
+  // `0` in JS, silently setting exchangeRate to 0 (the audit's finding).
+  // Both cases below now simply leave exchangeRate untouched.
   const handleBufferChange = useCallback((value: number) => {
     const nextBuffer = Number.isFinite(value)
       ? Math.min(100, Math.max(0, value))
       : DEFAULT_CURRENCY_BUFFER
     setBufferPercent(nextBuffer)
     if (currency === 'THB') return
-
-    if (rateSource === 'manual' || actualExchangeRate == null) {
-      if (exchangeRate != null && exchangeRate > 0) {
-        setExchangeRate(applyBuffer(actualExchangeRate, nextBuffer))
-      }
-      return
-    }
+    if (rateSource === 'manual') return
+    if (actualExchangeRate == null) return
 
     if (actualExchangeRate > 0) {
       setExchangeRate(applyBuffer(actualExchangeRate, nextBuffer))
     }
-  }, [currency, rateSource, exchangeRate, actualExchangeRate])
+  }, [currency, rateSource, actualExchangeRate])
   const loadBankRate = useCallback(async (code: CurrencyCode, date: string) => {
     if (api.mode !== 'ems') return
     if (code === 'THB') return
@@ -504,22 +524,31 @@ export default function ExternalPartForm({
     setActualExchangeRate(null)
     void loadBankRate(code, rateDate)
   }, [loadBankRate, rateDate])
+  // claude_prompt.txt, fix 1: "Changing the date always fetches the SCB rate
+  // for the new date, whatever rateSource is." The previous `rateSource ===
+  // 'manual'` early return (the audit's root cause) is gone -- a date change
+  // always calls loadBankRate(), which on success sets actualExchangeRate to
+  // the fetched rate, exchangeRate via applyBuffer(), and rateSource back to
+  // 'bank' (discarding any earlier typed rate), or keeps the existing
+  // error/blocked-submission behaviour on failure -- both already
+  // loadBankRate()'s own unchanged behaviour.
   const handleDateChange = useCallback((date: string) => {
     setRateDate(date)
     if (currency === 'THB') return
-    if (rateSource === 'manual') return
     void loadBankRate(currency, date)
-  }, [currency, rateSource, loadBankRate])
+  }, [currency, loadBankRate])
+  // claude_prompt.txt, fix 1: "Typing in the Exchange Rate field ... changes
+  // only exchangeRate (and sets rateSource to 'manual'). It must not compute
+  // or change actualExchangeRate: remove the use of actualFromApplied
+  // there." actualExchangeRate now keeps whatever it already was (the SCB
+  // rate of the selected date, a loaded group's stored value, or null).
   const handleManualRateChange = useCallback((value: number | null) => {
     setExchangeRate(value)
-    setActualExchangeRate(
-      value != null && value > 0 ? actualFromApplied(value, bufferPercent) : null
-    )
     setRateSource('manual')
     setRateError('')
     setRateNotFoundFor(null)
     rateRequestRef.current += 1
-  }, [bufferPercent])
+  }, [])
   const useBankRate = useCallback(() => {
     void loadBankRate(currency, rateDate)
   }, [currency, rateDate, loadBankRate])
@@ -715,10 +744,10 @@ export default function ExternalPartForm({
 
   const partsHeaders = showForeignCost
     ? containsStockItems
-      ? ['Part Name *', 'Qty', 'Unit', `Cost (${currency})`, 'Cost (THB)', 'Markup %', 'Selling', 'Total', 'Weight (kg)', 'Import Tax % / Amount', 'Keep stock', 'Quote Qty', '']
-      : ['Part Name *', 'Qty', 'Unit', `Cost (${currency})`, 'Cost (THB)', 'Markup %', 'Selling', 'Total', 'Weight (kg)', 'Import Tax % / Amount', '']
+      ? ['Part Name *', 'Qty', 'Unit', `Cost (${currency})`, 'Cost (THB)', 'Markup %', 'Selling', 'Total', 'Import Tax % / Amount', 'Keep stock', 'Quote Qty', '']
+      : ['Part Name *', 'Qty', 'Unit', `Cost (${currency})`, 'Cost (THB)', 'Markup %', 'Selling', 'Total', 'Import Tax % / Amount', '']
     : containsStockItems
-      ? ['Part Name *', 'Qty', 'Unit', 'Unit Cost', 'Markup %', 'Selling', 'Total', 'Import Tax % / Amount', 'Weight (kg)', 'Keep stock', 'Quote Qty', '']
+      ? ['Part Name *', 'Qty', 'Unit', 'Unit Cost', 'Markup %', 'Selling', 'Total', 'Import Tax % / Amount', 'Keep stock', 'Quote Qty', '']
       : ['Part Name *', 'Qty', 'Unit', 'Unit Cost', 'Markup %', 'Selling', 'Total', 'Import Tax % / Amount', '']
 
   const overlayStyle: React.CSSProperties = {
@@ -972,9 +1001,14 @@ export default function ExternalPartForm({
                       onChange={(e) => {
                         const raw = e.target.value
                         if (api.mode !== 'ems') {
+                          // claude_prompt.txt, fix 1: "Nothing else in the
+                          // file may write actualExchangeRate from a typed
+                          // or derived value" -- this is the non-'ems'-mode
+                          // twin of handleManualRateChange's own onChange
+                          // branch below; it typed into the same field, so
+                          // it must not touch actualExchangeRate either.
                           const next = raw === '' ? 0 : Number(raw) || 0
                           setExchangeRate(next)
-                          setActualExchangeRate(next > 0 ? actualFromApplied(next, bufferPercent) : null)
                           return
                         }
                         handleManualRateChange(raw === '' ? null : Number(raw) || 0)

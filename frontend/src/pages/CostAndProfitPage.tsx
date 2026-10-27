@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
-import { api, attemptSsoHydrate, getToken, setUnauthorizedHandler, type CostProfitGroup, type CostProfitLine, type CostProfitProject, type CostProfitReport, type CostProfitTwoTotals } from '../services/api'
+import { useEffect, useState } from 'react'
+import { api, attemptSsoHydrate, getToken, setUnauthorizedHandler, type CostProfitGroup, type CostProfitLine, type CostProfitProject, type CostProfitReport, type CostProfitTwoTotals, type QuotationStatus } from '../services/api'
 import LoginScreen from './LoginScreen'
 import CostProfitDashboard from './CostProfitDashboard'
+import { generateCostProfitPDF } from '../utils/generateCostProfitPDF'
 
 // claude_prompt.txt ("Cost & Profit report"), Part 2. Standalone page,
 // reachable only by URL (no menu link) -- wired in from main.tsx via a
@@ -55,6 +56,23 @@ const profitBg = (v: number) => (v < 0 ? negBg : posBg)
 const SUMMARY_POS = '#12B76A'
 const SUMMARY_NEG = '#F04438'
 const summaryColor = (v: number) => (v < 0 ? SUMMARY_NEG : SUMMARY_POS)
+
+// claude_prompt.txt ("Cost & Profit report: list quotations of every
+// status, count only accepted ones in all totals"), decision 1 & 4: the
+// page always asks for every status now -- the "Accepted only / + Sent
+// (forecast)" toggle is gone, so this is a fixed constant, not state.
+const ALL_STATUSES: QuotationStatus[] = ['draft', 'sent', 'accepted', 'rejected', 'expired']
+
+// decision 6: chip text per status -- accepted/sent keep their existing
+// wording exactly; the other statuses get "<Name> <date>" with no
+// "forecast" suffix (that word is specific to a forward-looking guess,
+// which draft/rejected/expired are not).
+function statusChipText(status: QuotationStatus, date: string): string {
+  if (status === 'accepted') return `Accepted ${formatStatusDate(date)}`
+  if (status === 'sent') return `Sent ${formatStatusDate(date)} · forecast`
+  const label = status.charAt(0).toUpperCase() + status.slice(1)
+  return `${label} ${formatStatusDate(date)}`
+}
 
 function currentMonth(): string {
   const d = new Date()
@@ -162,7 +180,6 @@ export default function CostAndProfitPage() {
   const [checkingSso, setCheckingSso] = useState(() => !getToken())
   const [view, setView] = useState<View>('report')
   const [month, setMonth] = useState<string>(currentMonth())
-  const [includeSent, setIncludeSent] = useState(false)
   const [basis, setBasis] = useState<Basis>('quoted')
   const [data, setData] = useState<CostProfitReport | null>(null)
   const [loading, setLoading] = useState(false)
@@ -193,8 +210,6 @@ export default function CostAndProfitPage() {
     }
   }, [loggedIn])
 
-  const statuses = useMemo<('accepted' | 'sent')[]>(() => (includeSent ? ['accepted', 'sent'] : ['accepted']), [includeSent])
-
   useEffect(() => {
     if (!loggedIn) return
 
@@ -206,7 +221,7 @@ export default function CostAndProfitPage() {
       setForbidden(false)
 
       try {
-        const report = await api.getCostProfit(month, statuses)
+        const report = await api.getCostProfit(month, ALL_STATUSES)
         if (cancelled) return
         setData(report)
         // First project + its first quotation start expanded, only on first load for this fetch.
@@ -230,7 +245,7 @@ export default function CostAndProfitPage() {
     return () => {
       cancelled = true
     }
-  }, [month, statuses, loggedIn])
+  }, [month, loggedIn])
 
   if (!loggedIn) {
     if (checkingSso) return null
@@ -292,14 +307,6 @@ export default function CostAndProfitPage() {
               </div>
 
               <div className="cp-control">
-                <span className="cp-control-label">Quotations</span>
-                <div className="cp-segmented" role="group" aria-label="Quotations">
-                  <button type="button" className={includeSent ? '' : 'active'} onClick={() => setIncludeSent(false)}>Accepted only</button>
-                  <button type="button" className={includeSent ? 'active' : ''} onClick={() => setIncludeSent(true)}>+ Sent (forecast)</button>
-                </div>
-              </div>
-
-              <div className="cp-control">
                 <span className="cp-control-label">Cost basis</span>
                 <div className="cp-segmented" role="group" aria-label="Cost basis">
                   <button type="button" className={basis === 'quoted' ? 'active' : ''} onClick={() => setBasis('quoted')}>Quoted rate</button>
@@ -319,7 +326,7 @@ export default function CostAndProfitPage() {
           {!forbidden && error && <div className="cp-state cp-state-error">{error}</div>}
           {!forbidden && !error && loading && <div className="cp-state">Loading…</div>}
           {!forbidden && !error && !loading && data && data.projects.length === 0 && (
-            <div className="cp-state">No accepted quotations in this month.</div>
+            <div className="cp-state">No quotations in this month.</div>
           )}
 
           {!forbidden && !error && !loading && data && data.projects.length > 0 && totals && basisTotals && twoTotals && basisTwoTotals && (
@@ -376,6 +383,10 @@ export default function CostAndProfitPage() {
                           <span className="cp-project-meta">{project.clientName} · {project.quotations.length} quotation{project.quotations.length === 1 ? '' : 's'}</span>
                         </span>
                         <StatCells quotationTotal={pTwoBasis.quotationTotal} revenue={pTwoBasis.revenue} discount={undefined} discountPercent={undefined} cost={pTwoBasis.cost} profit={pTwoBasis.profit} margin={pctStr(pTwoBasis.profit, pTwoBasis.revenue)} excelBasis={pExcelBasis} size={16} />
+                        {/* claude_prompt.txt ("... export one quotation as PDF"): "The project
+                            header row gets an empty 56px spacer at the same position, so every
+                            header cell keeps lining up with the cells of the quotation header." */}
+                        <span className="cp-pdf-spacer" aria-hidden="true" />
                       </button>
 
                       {expanded && (
@@ -401,12 +412,30 @@ export default function CostAndProfitPage() {
 
                             return (
                               <div className="cp-quotation-panel" key={q.id}>
-                                <button type="button" className="cp-quotation-header" onClick={() => toggleQuotation(q.id)} aria-expanded={qExpanded}>
+                                {/* claude_prompt.txt ("... export one quotation as PDF"): the PDF
+                                    button is a real <button>, nested inside this header -- an
+                                    outer <button> can't legally contain another, so this row is a
+                                    <div role="button"> with its own keyboard handling instead of
+                                    the plain <button> every other header on this page still uses
+                                    (project header, unaffected, keeps its <button>). */}
+                                <div
+                                  className="cp-quotation-header"
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-expanded={qExpanded}
+                                  onClick={() => toggleQuotation(q.id)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault()
+                                      toggleQuotation(q.id)
+                                    }
+                                  }}
+                                >
                                   <span className="cp-chev">{qExpanded ? '▾' : '▸'}</span>
                                   <span className="cp-quotation-title">
                                     <span className="cp-quotation-number">{q.number}</span>
                                     <span className={`cp-chip cp-chip-${q.status}`}>
-                                      {q.status === 'accepted' ? `Accepted ${formatStatusDate(q.statusDate)}` : `Sent ${formatStatusDate(q.statusDate)} · forecast`}
+                                      {statusChipText(q.status, q.statusDate)}
                                     </span>
                                     {q.discount && <span className="cp-chip cp-chip-neutral">Discount {q.discount.percentOfPartsSubtotal}%</span>}
                                     {q.totals.linesWithoutCost > 0 && (
@@ -416,7 +445,20 @@ export default function CostAndProfitPage() {
                                     {q.statusDateEstimated && <span className="cp-muted-note">date estimated</span>}
                                   </span>
                                   <StatCells quotationTotal={qTwoBasis.quotationTotal} revenue={qTwoBasis.revenue} discount={discountAmountOf(q)} discountPercent={q.discountPercent} cost={qTwoBasis.cost} profit={qTwoBasis.profit} margin={pctStr(qTwoBasis.profit, qTwoBasis.revenue)} excelBasis={qExcelBasis} size={15} />
-                                </button>
+                                  {/* claude_prompt.txt: "Placed at the end of the quotation header
+                                      row, after the Margin cell ... Clicking the button must not
+                                      expand or collapse the quotation." */}
+                                  <button
+                                    type="button"
+                                    className="cp-pdf-btn"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      generateCostProfitPDF(q, basis)
+                                    }}
+                                  >
+                                    PDF
+                                  </button>
+                                </div>
 
                                 {qExpanded && (
                                   <div className="cp-table-scroll">
@@ -515,7 +557,7 @@ export default function CostAndProfitPage() {
                                 PROGRESS_LOG.md), so this line is kept rather than removed. */}
                                 {qExpanded && q.discount && (() => {
                                   const discountAmount = q.discount.amountIncVat
-                                  const revenueBeforeDiscount = qTwoBasis.revenue + discountAmount
+                                  const revenueBeforeDiscount = (qTwoBasis.revenue ?? 0) + discountAmount
                                   const profitBeforeDiscount = qTwoBasis.profit != null ? qTwoBasis.profit + discountAmount : null
                                   const marginBeforeDiscount =
                                     profitBeforeDiscount != null && revenueBeforeDiscount > 0
@@ -782,9 +824,18 @@ const CSS = `
 .cp-stat-value { font-variant-numeric: tabular-nums; color:#1B2559; }
 .cp-stat-profit .cp-stat-value { font-weight:700; }
 .cp-stat-margin .cp-stat-value { font-weight:600; }
+/* claude_prompt.txt ("... export one quotation as PDF"), "Button": "Placed
+   at the end of the quotation header row, after the Margin cell. Solid
+   background #3B4BA0, white bold text PDF, width 56px, radius 8px." The
+   project header's spacer is the same 56px so every column still lines up. */
+.cp-pdf-btn { width:56px; height:30px; flex-shrink:0; border:0; border-radius:8px; background:#3B4BA0; color:#fff; font-weight:700; font-size:13px; cursor:pointer; }
+.cp-pdf-spacer { width:56px; flex-shrink:0; }
 .cp-chip { font-size:12px; padding:2px 9px; border-radius:999px; }
 .cp-chip-accepted { background:#A7F3D0; color:#047857; }
 .cp-chip-sent { background:#E0E7FF; color:#3730A3; }
+.cp-chip-draft { background:#E5E7EB; color:#374151; }
+.cp-chip-rejected { background:#FECACA; color:#B91C1C; }
+.cp-chip-expired { background:#E5E7EB; color:#6B7280; }
 .cp-chip-warning { background:#FDE68A; color:#B45309; }
 .cp-chip-neutral { background:#FEF3C7; color:#B45309; }
 .cp-muted-note { font-size:11px; color:#5B6BB5; }
