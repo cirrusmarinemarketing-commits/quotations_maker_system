@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api } from '../services/api'
+import { api, hasPermission } from '../services/api'
 import { computeCtlTotal } from '../utils/generateQuotationPDF'
 import {
   lotShipping,
@@ -199,6 +199,11 @@ function QuotationView({ quotationId, onBack, onEdit }: QuotationViewProps) {
   const [error, setError] = useState('')
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [companyName, setCompanyName] = useState('')
+  // claude_prompt.txt ("v186 -- Quotation Authorization & Editing Workflow
+  // Refactor"): Revise is its own action (Draft-editing's Edit button is
+  // never disabled/loading the same way, since it's just a navigation,
+  // not a network call).
+  const [revising, setRevising] = useState(false)
 
   const loadQuotation = async () => {
     if (!quotationId) return
@@ -240,6 +245,26 @@ function QuotationView({ quotationId, onBack, onEdit }: QuotationViewProps) {
       )
     } finally {
       setUpdatingStatus(false)
+    }
+  }
+
+  // claude_prompt.txt ("v186"): the only entry point that creates a
+  // Revision. On success, navigates straight into the new Draft via the
+  // same onEdit() callback the Draft "Edit" button uses -- it's already
+  // just "open the create/edit form for this quotation id", which is
+  // exactly what a brand-new Draft Revision needs too. The source
+  // quotation itself is never touched by this.
+  const handleRevise = async () => {
+    setRevising(true)
+    setError('')
+    try {
+      const result = await api.createRevision(quotationId)
+      onEdit(result.id)
+    } catch (err) {
+      console.error('Failed to create revision:', err)
+      setError(err instanceof Error ? err.message : 'Failed to create revision')
+    } finally {
+      setRevising(false)
     }
   }
 
@@ -317,6 +342,31 @@ function QuotationView({ quotationId, onBack, onEdit }: QuotationViewProps) {
 
   const normalizedStatus = quotation.status.toLowerCase()
   const statusInfo = getStatusInfo(quotation.status)
+  // Implement -- Quotation Permissions & Accepted Immutability, §7: UX-only
+  // gating -- the backend enforces the actual rule (sales.approve required
+  // to reach 'accepted', sales.update for every other transition, nothing
+  // reopens 'accepted'); this just avoids presenting a control that a
+  // confirmed-by-the-backend rule would reject anyway.
+  const isAccepted = normalizedStatus === 'accepted'
+  const canApprove = hasPermission('sales.approve')
+  // Still gates the status-change dropdown below (unchanged by v186 --
+  // sales.update continues to control status transitions, just no longer
+  // Draft editing itself).
+  const canUpdateStatus = hasPermission('sales.update')
+  // claude_prompt.txt ("v186 -- Quotation Authorization & Editing Workflow
+  // Refactor"): Draft editing needs no permission check at all here --
+  // "any authenticated user who has access to the quotation" may edit it,
+  // and merely being able to load this page already implies that access
+  // (sales.read's own access-scope check, server-side). Every non-Draft
+  // status instead shows Revise, gated by sales.revise exclusively --
+  // sales.update must never substitute for it.
+  const isDraft = normalizedStatus === 'draft'
+  const canRevise = hasPermission('sales.revise')
+  const visibleStatusOptions = STATUS_OPTIONS.filter((option) => {
+    if (option.value === normalizedStatus) return true
+    if (option.value === 'accepted') return canApprove
+    return canUpdateStatus
+  })
   const stockLines = lines.filter((line) => line.line_type === 'stock')
   const shippingLines = lines.filter((line) => line.line_type === 'shipping')
   const includedCtlItems = ctlItems.filter((item) => item.included)
@@ -360,10 +410,11 @@ function QuotationView({ quotationId, onBack, onEdit }: QuotationViewProps) {
             <select
               id="qv-status"
               value={normalizedStatus}
-              disabled={updatingStatus}
+              disabled={updatingStatus || isAccepted}
+              title={isAccepted ? 'Accepted quotations are final and cannot change status' : undefined}
               onChange={(e) => void updateStatus(e.target.value)}
             >
-              {STATUS_OPTIONS.map((option) => (
+              {visibleStatusOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -380,13 +431,26 @@ function QuotationView({ quotationId, onBack, onEdit }: QuotationViewProps) {
           >
             Refresh
           </button>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => onEdit(quotationId)}
-          >
-            Edit
-          </button>
+          {isDraft && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => onEdit(quotationId)}
+            >
+              Edit
+            </button>
+          )}
+          {!isDraft && canRevise && (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void handleRevise()}
+              disabled={revising}
+              title="Create an editable Draft copy of this quotation -- the original is never changed"
+            >
+              {revising ? 'Creating Revision…' : 'Revise'}
+            </button>
+          )}
         </div>
       </header>
 

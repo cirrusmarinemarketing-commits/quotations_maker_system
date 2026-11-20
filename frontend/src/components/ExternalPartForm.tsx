@@ -698,20 +698,41 @@ export default function ExternalPartForm({
     []
   )
   if (!open) return null
+  const chevronBg =
+    "url(\"data:image/svg+xml,%3Csvg width='16' height='16' viewBox='0 0 16 16' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%23475569' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")"
   const inputStyle: React.CSSProperties = {
     width: '100%',
-    height: '34px',
-    minHeight: '34px',
+    height: '44px',
+    minHeight: '44px',
     boxSizing: 'border-box',
-    padding: '6px 10px',
-    border: '1px solid #e5e7eb',
-    borderRadius: '6px',
-    background: '#fff',
-    fontSize: '13px',
+    padding: '0 12px',
+    border: '1px solid #CBD5E1',
+    borderRadius: '8px',
+    background: '#FFFFFF',
+    fontSize: '15px',
     lineHeight: '20px',
     display: 'block',
     flexShrink: 0,
-    color: '#111827',
+    color: '#0F172A',
+  }
+  const selectStyle: React.CSSProperties = {
+    ...inputStyle,
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    MozAppearance: 'none',
+    paddingRight: '40px',
+    backgroundImage: chevronBg,
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'right 12px top 14px',
+    backgroundSize: '16px 16px',
+  }
+  // Parts-table selects sit in a narrower cell: spec gives them their own
+  // chevron offset/padding (right 8, padding-right 32) instead of the
+  // modal-wide field values above.
+  const tableSelectStyle: React.CSSProperties = {
+    ...selectStyle,
+    paddingRight: '32px',
+    backgroundPosition: 'right 8px top 14px',
   }
   const numberInputStyle: React.CSSProperties = {
     ...inputStyle,
@@ -720,10 +741,11 @@ export default function ExternalPartForm({
   }
   const labelStyle: React.CSSProperties = {
     display: 'block',
-    marginBottom: '5px',
-    fontSize: '12px',
+    marginBottom: '6px',
+    fontSize: '13px',
+    lineHeight: '16px',
     fontWeight: 600,
-    color: '#374151',
+    color: '#334155',
   }
   const fieldStyle: React.CSSProperties = {
     display: 'block',
@@ -731,16 +753,33 @@ export default function ExternalPartForm({
     minWidth: 0,
   }
 
+  // Named columns use the spec's exact pixel widths. The two conditional
+  // extra columns (Cost (THB) when showForeignCost, and the stock-allocation
+  // columns when containsStockItems) have no counterpart in the spec's
+  // column list, so their pre-existing widths are kept unchanged (100px/
+  // 110px and 88px/120px/72px respectively) rather than invented.
+  // A stray, unused extra width token (110px, left over with no header or
+  // cell after an earlier removed column) previously sat between Total and
+  // Import Tax % / Amount in both branches below -- removed; it rendered as
+  // an unlabelled ~110px gap between those two columns.
   const baseColumnWidths = showForeignCost
-    ? 'minmax(140px, 1fr) 80px 100px 100px 110px 80px 120px 120px 110px'
-    : 'minmax(160px, 1fr) 56px 72px 110px 72px 130px 130px 110px'
+    ? 'minmax(608px, 1fr) 80px 100px 100px 110px 100px 124px 124px'
+    : 'minmax(608px, 1fr) 80px 100px 124px 100px 124px 124px'
 
   const stockColumnWidths = '88px 120px 72px'
-  const taxColumnWidth = '100px'
+  const taxColumnWidth = '136px'
+  const actionColumnWidth = '76px'
 
   const partsGridColumns = containsStockItems
-    ? `${baseColumnWidths} ${taxColumnWidth} ${stockColumnWidths} 36px`
-    : `${baseColumnWidths} ${taxColumnWidth} 36px`
+    ? `${baseColumnWidths} ${taxColumnWidth} ${stockColumnWidths} ${actionColumnWidth}`
+    : `${baseColumnWidths} ${taxColumnWidth} ${actionColumnWidth}`
+
+  // Spec states "min-width 1472" for the named columns only (Part Name 608
+  // minimum + Qty 80 + Unit 100 + Unit Cost 124 + Markup% 100 + Selling 124
+  // + Total 124 + Import Tax 136 + action 76 = 1472). The two conditional
+  // extra columns add their own existing widths on top.
+  const partsTableMinWidth =
+    1472 + (showForeignCost ? 86 : 0) + (containsStockItems ? 280 : 0)
 
   const partsHeaders = showForeignCost
     ? containsStockItems
@@ -750,85 +789,115 @@ export default function ExternalPartForm({
       ? ['Part Name *', 'Qty', 'Unit', 'Unit Cost', 'Markup %', 'Selling', 'Total', 'Import Tax % / Amount', 'Keep stock', 'Quote Qty', '']
       : ['Part Name *', 'Qty', 'Unit', 'Unit Cost', 'Markup %', 'Selling', 'Total', 'Import Tax % / Amount', '']
 
+  // Header cells left-align "Part Name *"/"Unit" and right-align everything
+  // else; "Part Name *" gets padding-left 24, the trailing empty (action)
+  // header gets padding 12px 24px 12px 8px, all others 12px 8px.
+  const headerCellStyleFor = (header: string, isLast: boolean): React.CSSProperties => {
+    const isLeftAligned = header === 'Part Name *' || header === 'Unit'
+    return {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: isLeftAligned ? 'flex-start' : 'flex-end',
+      boxSizing: 'border-box',
+      padding: header === 'Part Name *' ? '12px 8px 12px 24px' : isLast ? '12px 24px 12px 8px' : '12px 8px',
+      fontSize: '11px',
+      lineHeight: '16px',
+      fontWeight: 600,
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      color: '#475569',
+      whiteSpace: 'normal',
+    }
+  }
+  // Body cells: vertical-align top, padding 12px 8px; first (Part Name)
+  // cell padding-left 24, last (action) cell padding-right 24.
+  const bodyCellStyleFor = (isFirst: boolean, isLast: boolean): React.CSSProperties => ({
+    boxSizing: 'border-box',
+    alignSelf: 'start',
+    padding: isFirst ? '12px 8px 12px 24px' : isLast ? '12px 24px 12px 8px' : '12px 8px',
+    minWidth: 0,
+  })
+
   const overlayStyle: React.CSSProperties = {
     position: 'fixed',
     inset: 0,
     zIndex: 1000,
-    background: 'rgba(15, 23, 42, 0.45)',
+    background: 'rgba(11, 31, 58, 0.6)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '16px',
+    padding: '48px 24px',
+    overflowY: 'auto',
   }
   const modalStyle: React.CSSProperties = {
-    width: 'min(1320px, 100%)',
+    width: '100%',
+    maxWidth: '1522px',
     maxHeight: '94vh',
-    background: '#fff',
+    background: '#FFFFFF',
     borderRadius: '12px',
-    boxShadow: '0 16px 40px rgba(15,23,42,0.14)',
+    boxShadow: '0 24px 64px rgba(11,31,58,0.35)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
   }
   const sectionHeadingStyle: React.CSSProperties = {
-    fontSize: '13px',
-    fontWeight: 650,
-    color: '#111827',
-    letterSpacing: '0.01em',
+    fontSize: '16px',
+    lineHeight: '24px',
+    fontWeight: 600,
+    color: '#0F172A',
   }
   const sectionSubtextStyle: React.CSSProperties = {
     marginTop: '2px',
-    fontSize: '12px',
-    color: '#6b7280',
+    fontSize: '13px',
+    lineHeight: '18px',
+    color: '#64748B',
+  }
+  const cardStyle: React.CSSProperties = {
+    border: '1px solid #E2E8F0',
+    borderRadius: '12px',
+    background: '#FFFFFF',
+    flexShrink: 0,
   }
   const readOnlyBoxStyle: React.CSSProperties = {
-    height: '34px',
-    minHeight: '34px',
+    height: '44px',
+    minHeight: '44px',
     boxSizing: 'border-box',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    padding: '0 8px',
-    border: '1px solid #e5e7eb',
-    borderRadius: '6px',
-    background: '#f8fafc',
-    fontSize: '12px',
+    padding: '0 12px',
+    border: '1px solid #E2E8F0',
+    borderRadius: '8px',
+    background: '#F1F5F9',
+    fontSize: '15px',
     fontVariantNumeric: 'tabular-nums',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
-    color: '#374151',
-  }
-  const headerCellStyle: React.CSSProperties = {
-    padding: '8px 6px',
-    display: 'flex',
-    alignItems: 'center',
-    boxSizing: 'border-box',
-    fontSize: '11px',
-    fontWeight: 650,
-    color: '#6b7280',
-    whiteSpace: 'normal',
-    lineHeight: 1.25,
+    color: '#475569',
   }
   return (
     <div style={overlayStyle} onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div style={modalStyle} role="dialog" aria-modal="true">
+      <div className="epf-dialog" style={modalStyle} role="dialog" aria-modal="true">
+        {/* Inline styles can't target ::placeholder; this scoped rule
+            (ancestor-classed to this dialog only) is the one exception. */}
+        <style>{'.epf-dialog input::placeholder { color: #64748B; }'}</style>
         <div
           style={{
-            padding: '12px 16px',
-            borderBottom: '1px solid #e5e7eb',
+            padding: '20px 24px',
+            borderBottom: '1px solid #E2E8F0',
             display: 'flex',
             justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: '12px',
+            alignItems: 'flex-start',
+            gap: '16px',
             flexShrink: 0,
-            background: '#fff',
+            background: '#FFFFFF',
           }}
         >
           <div>
-            <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 650, color: '#111827' }}>
+            <h2 style={{ margin: 0, fontSize: '18px', lineHeight: '24px', fontWeight: 600, color: '#0F172A' }}>
               {initialGroup ? 'Edit External Source' : 'Add External Source'}
             </h2>
-            <div style={{ marginTop: '2px', fontSize: '12px', color: '#6b7280' }}>
+            <div style={{ marginTop: '2px', fontSize: '13px', lineHeight: '18px', color: '#64748B' }}>
               {initialGroup ? 'Edit supplier, parts, and costs' : 'Supplier, parts, and costs'}
             </div>
           </div>
@@ -837,19 +906,21 @@ export default function ExternalPartForm({
             onClick={onClose}
             aria-label="Close"
             style={{
-              width: '32px',
-              height: '32px',
-              border: '1px solid #e5e7eb',
-              borderRadius: '6px',
-              background: '#fff',
-              fontSize: '18px',
-              lineHeight: 1,
+              width: '44px',
+              height: '44px',
+              border: '1px solid #CBD5E1',
+              borderRadius: '8px',
+              background: '#FFFFFF',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
               cursor: 'pointer',
-              color: '#6b7280',
               flexShrink: 0,
             }}
           >
-            ×
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#475569" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
           </button>
         </div>
         <form
@@ -861,26 +932,21 @@ export default function ExternalPartForm({
             overflow: 'hidden',
           }}
         >
-          <div style={{ padding: '14px 16px 18px', overflowY: 'auto', minHeight: 0, flex: 1 }}>
-            <div
-              style={{
-                border: '1px solid #e5e7eb',
-                borderRadius: '10px',
-                background: '#fff',
-                padding: '12px 14px',
-                marginBottom: '10px',
-              }}
-            >
-              <div style={sectionHeadingStyle}>Source</div>
-              <div style={{ ...sectionSubtextStyle, marginBottom: '8px' }}>
-                Where these parts come from
+          <div style={{ padding: '24px', background: '#F8FAFC', overflowY: 'auto', minHeight: 0, flex: 1, display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={cardStyle}>
+              <div style={{ padding: '20px 24px 0' }}>
+                <div style={sectionHeadingStyle}>Source</div>
+                <div style={sectionSubtextStyle}>
+                  Where these parts come from
+                </div>
               </div>
               <div
                 style={{
                   display: 'grid',
                   gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                  gap: '10px',
-                  marginBottom: '8px',
+                  gap: '20px 16px',
+                  padding: '20px 24px 24px',
+                  alignItems: 'start',
                 }}
               >
                 <div style={fieldStyle}>
@@ -890,7 +956,7 @@ export default function ExternalPartForm({
                     onChange={(e) =>
                       handleSourceTypeChange(e.target.value as SourceType)
                     }
-                    style={inputStyle}
+                    style={selectStyle}
                   >
                     <option value="import">Import</option>
                     <option value="local_supplier">Local Supplier</option>
@@ -927,15 +993,6 @@ export default function ExternalPartForm({
                     style={inputStyle}
                   />
                 </div>
-              </div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                  gap: '10px',
-                  marginBottom: '8px',
-                }}
-              >
                 <div style={fieldStyle}>
                   <label style={labelStyle}>Currency</label>
                   <select
@@ -944,7 +1001,7 @@ export default function ExternalPartForm({
                     onChange={(e) =>
                       handleCurrencyChange(e.target.value as CurrencyCode)
                     }
-                    style={inputStyle}
+                    style={selectStyle}
                   >
                     {CURRENCY_OPTIONS.map((c) => (
                       <option key={c.code} value={c.code}>
@@ -970,25 +1027,6 @@ export default function ExternalPartForm({
                       </span>
                     )}
                   </label>
-                  <div style={{ marginBottom: '6px' }}>
-                    <label htmlFor="currency-buffer" style={labelStyle}>
-                      Buffer (%)
-                    </label>
-                    <input
-                      id="currency-buffer"
-                      data-testid="currency-buffer-input"
-                      type="number"
-                      min={0}
-                      max={500}
-                      step="any"
-                      value={bufferPercent}
-                      onChange={(e) => {
-                        const value = e.target.value === '' ? 0 : Number(e.target.value)
-                        handleBufferChange(value)
-                      }}
-                      style={numberInputStyle}
-                    />
-                  </div>
                   <div style={{ display: 'flex', gap: '6px', alignItems: 'center', minWidth: 0 }}>
                     <input
                       data-testid="external-rate-input"
@@ -1015,7 +1053,8 @@ export default function ExternalPartForm({
                       }}
                       style={{
                         ...numberInputStyle,
-                        background: currency === 'THB' ? '#f1f1f1' : '#fff',
+                        background: currency === 'THB' ? '#F1F5F9' : '#FFFFFF',
+                        color: currency === 'THB' ? '#475569' : '#0F172A',
                         width: 'auto',
                         flex: '1 1 auto',
                         minWidth: 0,
@@ -1034,9 +1073,10 @@ export default function ExternalPartForm({
                           fontSize: '11px',
                           whiteSpace: 'nowrap',
                           flexShrink: 0,
-                          border: '1px solid #ccc',
-                          borderRadius: '5px',
-                          background: '#fff',
+                          border: '1px solid #CBD5E1',
+                          borderRadius: '6px',
+                          background: '#FFFFFF',
+                          color: '#0F172A',
                           cursor: rateLoading ? 'not-allowed' : 'pointer',
                         }}
                       >
@@ -1065,12 +1105,12 @@ export default function ExternalPartForm({
                     </div>
                   )}
                   {api.mode === 'ems' && currency !== 'THB' && rateSource === 'loaded' && initialGroup?.exchangeRateDate && (
-                    <div data-testid="external-rate-loaded" style={{ marginTop: '5px', fontSize: '12px', color: '#777' }}>
+                    <div data-testid="external-rate-loaded" style={{ marginTop: '5px', fontSize: '12px', color: '#64748B' }}>
                       Rate of {initialGroup.exchangeRateDate} · stored
                     </div>
                   )}
                   {api.mode === 'ems' && currency !== 'THB' && rateSource === 'loaded' && !initialGroup?.exchangeRateDate && (
-                    <div data-testid="external-rate-loaded" style={{ marginTop: '5px', fontSize: '12px', color: '#777' }}>
+                    <div data-testid="external-rate-loaded" style={{ marginTop: '5px', fontSize: '12px', color: '#64748B' }}>
                       Stored rate from when this was saved.
                     </div>
                   )}
@@ -1089,12 +1129,31 @@ export default function ExternalPartForm({
                       style={{
                         marginTop: '5px',
                         fontSize: '12px',
-                        color: '#777',
+                        color: '#64748B',
                       }}
                     >
                       e.g. 1 {currency} = 35.5000 THB → enter 35.5000
                     </div>
                   )}
+                </div>
+                <div style={fieldStyle}>
+                  <label htmlFor="currency-buffer" style={labelStyle}>
+                    Buffer (%)
+                  </label>
+                  <input
+                    id="currency-buffer"
+                    data-testid="currency-buffer-input"
+                    type="number"
+                    min={0}
+                    max={500}
+                    step="any"
+                    value={bufferPercent}
+                    onChange={(e) => {
+                      const value = e.target.value === '' ? 0 : Number(e.target.value)
+                      handleBufferChange(value)
+                    }}
+                    style={numberInputStyle}
+                  />
                 </div>
                 <div style={fieldStyle}>
                   <label style={labelStyle}>Estimated Delivery</label>
@@ -1128,7 +1187,7 @@ export default function ExternalPartForm({
                       onChange={(e) =>
                         setEstimatedDeliveryUnit(e.target.value as DeliveryUnit)
                       }
-                      style={inputStyle}
+                      style={selectStyle}
                     >
                       <option value="days">Days</option>
                       <option value="weeks">Weeks</option>
@@ -1137,15 +1196,6 @@ export default function ExternalPartForm({
                     </select>
                   </div>
                 </div>
-              </div>
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                  gap: '10px',
-                  marginBottom: '8px',
-                }}
-              >
                 <div style={fieldStyle}>
                   <label style={labelStyle}>Shipping Cost Before VAT ({currency})</label>
                   <input
@@ -1159,17 +1209,18 @@ export default function ExternalPartForm({
                     }
                     style={{
                       ...numberInputStyle,
-                      background: sourceType === 'local_purchase' ? '#f1f1f1' : '#fff',
+                      background: sourceType === 'local_purchase' ? '#F1F5F9' : '#FFFFFF',
+                      color: sourceType === 'local_purchase' ? '#475569' : '#0F172A',
                     }}
                   />
-                  <div style={{ marginTop: '5px', fontSize: '12px', color: '#777' }}>
+                  <div style={{ marginTop: '5px', fontSize: '12px', lineHeight: '16px', color: '#64748B', fontVariantNumeric: 'tabular-nums' }}>
                     Shipping Cost Before VAT (THB): ฿
                     {shippingCost.toLocaleString('en-US', {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
                   </div>
-                  <div style={{ marginTop: '3px', fontSize: '12px', color: '#777' }}>
+                  <div style={{ marginTop: '3px', fontSize: '12px', lineHeight: '16px', color: '#64748B', fontVariantNumeric: 'tabular-nums' }}>
                     + VAT 7% = ฿
                     {shippingVat.toLocaleString('en-US', {
                       minimumFractionDigits: 2,
@@ -1179,13 +1230,13 @@ export default function ExternalPartForm({
                 </div>
                 <div style={fieldStyle}>
                   <label style={labelStyle}>Total Import Duty / Tax (THB)</label>
-                  <div style={{ ...readOnlyBoxStyle, background: '#f1f1f1' }}>
+                  <div style={readOnlyBoxStyle}>
                     ฿{calculatedImportTax.toLocaleString('en-US', {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}
                   </div>
-                  <div style={{ marginTop: '5px', fontSize: '12px', color: '#777' }}>
+                  <div style={{ marginTop: '5px', fontSize: '12px', lineHeight: '16px', color: '#64748B' }}>
                     Calculated from each part's Import Tax rate.
                   </div>
                 </div>
@@ -1199,64 +1250,62 @@ export default function ExternalPartForm({
                     style={inputStyle}
                   />
                 </div>
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  paddingTop: '4px',
-                }}
-              >
-                <label
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={installationIncluded}
-                    onChange={(e) =>
-                      setInstallationIncluded(e.target.checked)
-                    }
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label
                     style={{
-                      width: '18px',
-                      height: '18px',
-                      minWidth: '18px',
-                      minHeight: '18px',
-                      margin: 0,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      fontSize: '14px',
+                      color: '#0F172A',
+                      cursor: 'pointer',
+                      minHeight: '44px',
                     }}
-                  />
-                  Installation Included
-                </label>
-              </div>
-            </div>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '8px',
-              }}
-            >
-              <div>
-                <div style={sectionHeadingStyle}>Parts</div>
-                <div style={sectionSubtextStyle}>
-                  Add one or more parts from this source.
-                  {showForeignCost && (
-                    <>
-                      {' '}
-                      Unit cost is in <strong>{currency}</strong>, converted at
-                      rate <strong>{exchangeRate ?? '(not set)'}</strong>.
-                    </>
-                  )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={installationIncluded}
+                      onChange={(e) =>
+                        setInstallationIncluded(e.target.checked)
+                      }
+                      style={{
+                        width: '18px',
+                        height: '18px',
+                        minWidth: '18px',
+                        minHeight: '18px',
+                        margin: 0,
+                        accentColor: '#0284C7',
+                      }}
+                    />
+                    Installation Included
+                  </label>
                 </div>
               </div>
             </div>
-            {/* <div
+            <div style={{ ...cardStyle, overflow: 'hidden' }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  padding: '20px 24px 16px',
+                }}
+              >
+                <div>
+                  <div style={sectionHeadingStyle}>Parts</div>
+                  <div style={sectionSubtextStyle}>
+                    Add one or more parts from this source.
+                    {showForeignCost && (
+                      <>
+                        {' '}
+                        Unit cost is in <strong>{currency}</strong>, converted at
+                        rate <strong>{exchangeRate ?? '(not set)'}</strong>.
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {/* <div
               style={{
                 marginTop: 12,
                 padding: '12px 14px',
@@ -1288,33 +1337,34 @@ export default function ExternalPartForm({
               <div
                 style={{
                   width: '100%',
-                  minHeight: '100px',
-                  border: '1px dashed #d1d5db',
+                  minHeight: '112px',
+                  border: '1px dashed #CBD5E1',
                   borderRadius: '10px',
-                  background: '#f9fafb',
+                  background: '#F8FAFC',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexDirection: 'column',
                   gap: '10px',
-                  marginTop: '12px',
+                  margin: '0 24px 20px',
                   boxSizing: 'border-box',
                 }}
               >
-                <div style={{ fontSize: '14px', color: '#777' }}>
+                <div style={{ fontSize: '14px', color: '#64748B' }}>
                   No parts added yet.
                 </div>
                 <button
                   type="button"
                   onClick={addPart}
                   style={{
-                    height: '36px',
-                    padding: '0 14px',
-                    border: '1px solid #2563eb',
-                    borderRadius: '5px',
-                    background: '#fff',
-                    color: '#2563eb',
-                    fontWeight: 600,
+                    height: '44px',
+                    padding: '0 16px',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    border: '1px solid #BAE6FD',
+                    borderRadius: '8px',
+                    background: '#FFFFFF',
+                    color: '#0369A1',
                     cursor: 'pointer',
                   }}
                 >
@@ -1326,24 +1376,23 @@ export default function ExternalPartForm({
                 style={{
                   width: '100%',
                   overflowX: 'auto',
-                  marginTop: '12px',
+                  borderTop: '1px solid #E2E8F0',
                 }}
               >
-                <div style={{ minWidth: showForeignCost ? 860 : 720 }}>
+                <div style={{ minWidth: `${partsTableMinWidth}px`, fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
                   <div
                     style={{
                       display: 'grid',
                       gridTemplateColumns: partsGridColumns,
                       minHeight: '40px',
-                      alignItems: 'center',
-                      borderBottom: '1px solid #e5e7eb',
-                      background: '#f9fafb',
+                      borderBottom: '1px solid #E2E8F0',
+                      background: '#F8FAFC',
                     }}
                   >
                     {partsHeaders.map((header, idx) => (
                       <div
                         key={`${header}-${idx}`}
-                        style={headerCellStyle}
+                        style={headerCellStyleFor(header, idx === partsHeaders.length - 1)}
                       >
                         {header}
                       </div>
@@ -1393,8 +1442,7 @@ export default function ExternalPartForm({
                           display: 'grid',
                           gridTemplateColumns: partsGridColumns,
                           minHeight: '48px',
-                          alignItems: 'center',
-                          borderBottom: '1px solid #eee',
+                          borderBottom: '1px solid #F1F5F9',
                           boxSizing: 'border-box',
                           background:
                             pendingFocusPartId === part.id
@@ -1402,13 +1450,7 @@ export default function ExternalPartForm({
                               : '#fff',
                         }}
                       >
-                        <div
-                          style={{
-                            padding: '0 6px',
-                            minWidth: 0,
-                            boxSizing: 'border-box',
-                          }}
-                        >
+                        <div style={bodyCellStyleFor(true, false)}>
                           <input
                             id={`external-part-name-${part.id}`}
                             type="text"
@@ -1422,12 +1464,7 @@ export default function ExternalPartForm({
                             style={inputStyle}
                           />
                         </div>
-                        <div
-                          style={{
-                            padding: '0 6px',
-                            boxSizing: 'border-box',
-                          }}
-                        >
+                        <div style={bodyCellStyleFor(false, false)}>
                           <input
                             type="number"
                             min="1"
@@ -1444,12 +1481,7 @@ export default function ExternalPartForm({
                             style={numberInputStyle}
                           />
                         </div>
-                        <div
-                          style={{
-                            padding: '0 6px',
-                            boxSizing: 'border-box',
-                          }}
-                        >
+                        <div style={bodyCellStyleFor(false, false)}>
                           <select
                             value={part.unit}
                             onChange={(e) =>
@@ -1462,10 +1494,11 @@ export default function ExternalPartForm({
                             }
                             disabled={unitsLoading}
                             style={{
-                              ...inputStyle,
+                              ...tableSelectStyle,
+                              color: unitMissing ? '#64748B' : '#0F172A',
                               borderColor: showUnitError
                                 ? '#d32f2f'
-                                : '#ccc',
+                                : '#CBD5E1',
                             }}
                           >
                             <option value="">
@@ -1496,12 +1529,7 @@ export default function ExternalPartForm({
                             </div>
                           )}
                         </div>
-                        <div
-                          style={{
-                            padding: '0 6px',
-                            boxSizing: 'border-box',
-                          }}
-                        >
+                        <div style={bodyCellStyleFor(false, false)}>
                           <input
                             type="number"
                             min="0"
@@ -1522,12 +1550,7 @@ export default function ExternalPartForm({
                           />
                         </div>
                         {showForeignCost && (
-                          <div
-                            style={{
-                              padding: '0 6px',
-                              boxSizing: 'border-box',
-                            }}
-                          >
+                          <div style={bodyCellStyleFor(false, false)}>
                             <div style={readOnlyBoxStyle}>
                               ฿
                               {costTHB.toLocaleString('en-US', {
@@ -1537,12 +1560,7 @@ export default function ExternalPartForm({
                             </div>
                           </div>
                         )}
-                        <div
-                          style={{
-                            padding: '0 6px',
-                            boxSizing: 'border-box',
-                          }}
-                        >
+                        <div style={bodyCellStyleFor(false, false)}>
                           <input
                             type="number"
                             min="0"
@@ -1559,12 +1577,7 @@ export default function ExternalPartForm({
                             style={numberInputStyle}
                           />
                         </div>
-                        <div
-                          style={{
-                            padding: '0 6px',
-                            boxSizing: 'border-box',
-                          }}
-                        >
+                        <div style={bodyCellStyleFor(false, false)}>
                           <div style={readOnlyBoxStyle}>
                             ฿
                             {part.unitPrice.toLocaleString('en-US', {
@@ -1573,19 +1586,8 @@ export default function ExternalPartForm({
                             })}
                           </div>
                         </div>
-                        <div
-                          style={{
-                            padding: '0 6px',
-                            boxSizing: 'border-box',
-                          }}
-                        >
-                          <div
-                            style={{
-                              ...readOnlyBoxStyle,
-                              background: '#f0f4f8',
-                              fontWeight: 600,
-                            }}
-                          >
+                        <div style={bodyCellStyleFor(false, false)}>
+                          <div style={readOnlyBoxStyle}>
                             ฿
                             {lineTotal.toLocaleString('en-US', {
                               minimumFractionDigits: 2,
@@ -1593,20 +1595,18 @@ export default function ExternalPartForm({
                             })}
                           </div>
                         </div>
-
-
-                        <div style={{ padding: '0 6px', boxSizing: 'border-box' }}>
+                        <div style={bodyCellStyleFor(false, false)}>
                           <select
                             value={importTaxPercent}
                             disabled={sourceType !== 'import'}
                             onChange={(e) => updatePart(part.id, { importTaxPercent: Number(e.target.value) })}
-                            style={{ ...inputStyle, padding: '7px 4px', fontSize: '12px' }}
+                            style={{ ...tableSelectStyle, fontSize: '12px' }}
                           >
                             {IMPORT_TAX_OPTIONS.map((rate) => (
                               <option key={rate} value={rate}>{rate}%</option>
                             ))}
                           </select>
-                          <div style={{ marginTop: '4px', fontSize: '11px', color: '#6b7280', textAlign: 'right' }}>
+                          <div style={{ marginTop: '4px', fontSize: '11px', color: '#64748B', textAlign: 'right' }}>
                             ฿{importTaxAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </div>
                         </div>
@@ -1752,35 +1752,30 @@ export default function ExternalPartForm({
                             </div>
                           </>
                         )}
-                        <div
-                          style={{
-                            padding: '0 4px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            boxSizing: 'border-box',
-                          }}
-                        >
+                        <div style={{ ...bodyCellStyleFor(false, true), display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
                           <button
                             type="button"
                             onClick={() => removePart(part.id)}
                             title="Remove part"
+                            aria-label="Remove part"
                             style={{
-                              width: '28px',
-                              height: '28px',
-                              minWidth: '28px',
-                              minHeight: '28px',
+                              width: '44px',
+                              height: '44px',
+                              minWidth: '44px',
+                              minHeight: '44px',
                               padding: 0,
-                              border: '1px solid #ddd',
-                              borderRadius: '5px',
-                              background: '#fff',
-                              color: '#d32f2f',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              border: '1px solid #CBD5E1',
+                              borderRadius: '8px',
+                              background: '#FFFFFF',
                               cursor: 'pointer',
-                              fontSize: '15px',
-                              lineHeight: '26px',
                             }}
                           >
-                            ×
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#B91C1C" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+                              <path d="M4 4l8 8M12 4l-8 8" />
+                            </svg>
                           </button>
                         </div>
                       </div>
@@ -1788,7 +1783,8 @@ export default function ExternalPartForm({
                   })}
                   <div
                     style={{
-                      padding: '10px 8px',
+                      padding: '16px 24px 20px',
+                      borderTop: '1px solid #F1F5F9',
                       display: 'flex',
                     }}
                   >
@@ -1796,14 +1792,14 @@ export default function ExternalPartForm({
                       type="button"
                       onClick={addPart}
                       style={{
-                        height: '34px',
-                        padding: '0 14px',
-                        border: '1px solid #2563eb',
-                        borderRadius: '5px',
-                        background: '#fff',
-                        color: '#2563eb',
-                        fontWeight: 600,
-                        fontSize: '13px',
+                        height: '44px',
+                        padding: '0 16px',
+                        fontSize: '14px',
+                        fontWeight: 500,
+                        border: '1px solid #BAE6FD',
+                        borderRadius: '8px',
+                        background: '#FFFFFF',
+                        color: '#0369A1',
                         cursor: 'pointer',
                       }}
                     >
@@ -1813,24 +1809,18 @@ export default function ExternalPartForm({
                 </div>
               </div>
             )}
+            </div>
 
             {parts.length > 0 && (
-              <div
-                style={{
-                  marginTop: '12px',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: '10px',
-                  background: '#fff',
-                  padding: '12px 14px',
-                }}
-              >
+              <div style={cardStyle}>
                 <div
                   style={{
                     display: 'flex',
+                    flexWrap: 'wrap',
                     justifyContent: 'space-between',
-                    alignItems: 'baseline',
-                    gap: '12px',
-                    marginBottom: '10px',
+                    alignItems: 'center',
+                    gap: '8px 16px',
+                    padding: '20px 24px 0',
                   }}
                 >
                   <div>
@@ -1839,9 +1829,10 @@ export default function ExternalPartForm({
                   </div>
                   <div
                     style={{
-                      fontSize: '18px',
-                      fontWeight: 700,
-                      color: '#1d4ed8',
+                      fontSize: '24px',
+                      lineHeight: '32px',
+                      fontWeight: 600,
+                      color: '#0369A1',
                       fontVariantNumeric: 'tabular-nums',
                       whiteSpace: 'nowrap',
                     }}
@@ -1850,11 +1841,12 @@ export default function ExternalPartForm({
                   </div>
                 </div>
 
+                <div style={{ padding: '20px 24px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div
                   style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                    gap: '8px',
+                    gap: '12px',
                   }}
                 >
                   {[
@@ -1865,20 +1857,21 @@ export default function ExternalPartForm({
                     <div
                       key={String(label)}
                       style={{
-                        padding: '10px 12px',
-                        borderRadius: '8px',
-                        background: '#f8fafc',
-                        border: '1px solid #f1f5f9',
+                        padding: '12px 16px',
+                        borderRadius: '10px',
+                        background: '#F8FAFC',
+                        border: '1px solid #E2E8F0',
                       }}
                     >
-                      <div style={{ fontSize: '11px', color: '#6b7280', marginBottom: '4px' }}>
+                      <div style={{ fontSize: '12px', lineHeight: '16px', color: '#475569', marginBottom: '4px' }}>
                         {label}
                       </div>
                       <div
                         style={{
-                          fontSize: '14px',
-                          fontWeight: 650,
-                          color: '#111827',
+                          fontSize: '18px',
+                          lineHeight: '24px',
+                          fontWeight: 600,
+                          color: '#0F172A',
                           fontVariantNumeric: 'tabular-nums',
                         }}
                       >
@@ -1891,14 +1884,16 @@ export default function ExternalPartForm({
                 {/* Shipping calculation details */}
                 <div
                   style={{
-                    marginTop: '12px',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    border: '1px solid #dbeafe',
-                    background: '#f8fbff',
+                    padding: '16px 20px',
+                    borderRadius: '10px',
+                    border: '1px solid #BAE6FD',
+                    background: '#F0F9FF',
+                    fontSize: '13px',
+                    lineHeight: '20px',
+                    fontVariantNumeric: 'tabular-nums',
                   }}
                 >
-                  <div style={{ fontSize: '13px', fontWeight: 700, color: '#1e40af', marginBottom: '10px' }}>
+                  <div style={{ fontSize: '14px', lineHeight: '20px', fontWeight: 600, color: '#0369A1', marginBottom: '8px' }}>
                     Shipping Breakdown
                   </div>
 
@@ -1935,12 +1930,11 @@ export default function ExternalPartForm({
                         justifyContent: 'space-between',
                         alignItems: 'center',
                         gap: '12px',
-                        padding: '5px 0',
-                        fontSize: '12px',
+                        padding: '6px 0',
                       }}
                     >
-                      <span style={{ color: '#6b7280' }}>{label}</span>
-                      <strong style={{ color: '#374151', fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+                      <span style={{ color: '#475569' }}>{label}</span>
+                      <strong style={{ color: '#0F172A', fontWeight: 400, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
                         {value}
                       </strong>
                     </div>
@@ -1949,17 +1943,16 @@ export default function ExternalPartForm({
                   <div
                     style={{
                       display: 'flex',
+                      alignItems: 'baseline',
                       justifyContent: 'space-between',
-                      alignItems: 'center',
                       gap: '12px',
-                      marginTop: '6px',
-                      paddingTop: '10px',
-                      borderTop: '1px solid #dbeafe',
-                      fontSize: '13px',
+                      marginTop: '8px',
+                      paddingTop: '12px',
+                      borderTop: '1px solid #BAE6FD',
                     }}
                   >
-                    <strong style={{ color: '#1e40af' }}>Customer Shipping Total</strong>
-                    <strong style={{ color: '#1d4ed8', fontSize: '15px', fontVariantNumeric: 'tabular-nums' }}>
+                    <strong style={{ color: '#0369A1', fontWeight: 600 }}>Customer Shipping Total</strong>
+                    <strong style={{ color: '#0369A1', fontSize: '16px', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
                       ฿ {Number(onQuotationShipping).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </strong>
                   </div>
@@ -1968,7 +1961,6 @@ export default function ExternalPartForm({
                 {containsStockItems && (
                   <div
                     style={{
-                      marginTop: '10px',
                       paddingTop: '10px',
                       borderTop: '1px solid #f1f5f9',
                       fontSize: '12px',
@@ -1990,66 +1982,69 @@ export default function ExternalPartForm({
                     </span>
                   </div>
                 )}
+                </div>
               </div>
             )}
 
           </div>
           <div
             style={{
-              padding: '10px 16px',
-              borderTop: '1px solid #e5e7eb',
+              padding: '16px 24px',
+              borderTop: '1px solid #E2E8F0',
               display: 'flex',
-              justifyContent: 'flex-end',
+              flexWrap: 'wrap',
+              justifyContent: 'space-between',
               alignItems: 'center',
-              gap: '10px',
-              background: '#fff',
+              gap: '12px 16px',
+              background: '#FFFFFF',
               flexShrink: 0,
             }}
           >
-            {missingSummary && (
-              <div
+            <div style={{ fontSize: '13px', lineHeight: '20px', color: '#B45309' }}>
+              {missingSummary}
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                onClick={onClose}
                 style={{
-                  fontSize: '12px',
-                  color: '#b91c1c',
-                  marginRight: 'auto',
+                  height: '44px',
+                  padding: '0 16px',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  border: '1px solid #CBD5E1',
+                  borderRadius: '8px',
+                  background: '#FFFFFF',
+                  color: '#0F172A',
+                  cursor: 'pointer',
                 }}
               >
-                {missingSummary}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              style={{
-                height: '38px',
-                padding: '0 16px',
-                border: '1px solid #d1d5db',
-                borderRadius: '6px',
-                background: '#fff',
-                color: '#374151',
-                fontSize: '13px',
-                cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!canSubmit}
-              style={{
-                height: '38px',
-                padding: '0 18px',
-                border: 'none',
-                borderRadius: '6px',
-                background: canSubmit ? '#2563eb' : '#d1d5db',
-                color: '#fff',
-                fontWeight: 600,
-                fontSize: '13px',
-                cursor: canSubmit ? 'pointer' : 'not-allowed',
-              }}
-            >
-              {initialGroup ? 'Save Changes' : 'Add External Source'}
-            </button>
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                style={{
+                  height: '44px',
+                  padding: '0 16px',
+                  border: canSubmit ? 'none' : '1px solid #7FB4D6',
+                  borderRadius: '8px',
+                  background: canSubmit ? '#0369A1' : '#7FB4D6',
+                  color: '#FFFFFF',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: canSubmit ? 'pointer' : 'not-allowed',
+                }}
+                onMouseEnter={(e) => {
+                  if (canSubmit) e.currentTarget.style.background = '#075985'
+                }}
+                onMouseLeave={(e) => {
+                  if (canSubmit) e.currentTarget.style.background = '#0369A1'
+                }}
+              >
+                {initialGroup ? 'Save Changes' : 'Add External Source'}
+              </button>
+            </div>
           </div>
         </form>
       </div>

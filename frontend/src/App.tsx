@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import {
   generateQuotationPDF,
   CTL_ITEM_DEFS,
@@ -25,7 +25,7 @@ import {
 import QuotationView from './pages/QuotationView'
 import QuotationList from './pages/QuotationList'
 import LoginScreen from './pages/LoginScreen'
-import { api, attemptSsoHydrate, EMS_FRONTEND_URL, getToken, logoutSso, setToken, setUnauthorizedHandler, type Company } from './services/api'
+import { api, bootstrapSsoAuth, clearSession, EMS_FRONTEND_URL, logoutSso, setUnauthorizedHandler, type Company } from './services/api'
 import {
   CTL_CONFIG,
   DEFAULT_LABOUR_STAFF,
@@ -138,12 +138,21 @@ function App() {
   const [viewQuotationId, setViewQuotationId] = useState<string | null>(null)
   const [noteDirty, setNoteDirty] = useState(false)
 
-  const [loggedIn, setLoggedIn] = useState(() => api.mode !== 'ems' || !!getToken())
+  // claude_prompt.txt ("v189 -- Unified EMS & Quotation Authentication /
+  // Shared Login Session"): in ems mode, EVERY startup case -- a fragment
+  // token, an existing stored token, or neither -- now waits on
+  // bootstrapSsoAuth() before being treated as logged in, including the
+  // existing-token case (previously trusted on sight, with no server
+  // round trip at all; see bootstrapSsoAuth()'s own comment in api.ts for
+  // why that was a real gap, not just defensive caution). getToken() is
+  // no longer read here at all -- which of the three cases applies is
+  // decided entirely inside bootstrapSsoAuth() itself now.
+  const [loggedIn, setLoggedIn] = useState(() => api.mode !== 'ems')
   // claude_prompt.txt ("SSO: opening a direct link to another app asks for
-  // login again"): true only while a direct/bookmarked/pasted visit (no
-  // local token yet) is still waiting on the one-time SSO-bridge check
-  // below -- keeps LoginScreen from flashing before that check resolves.
-  const [checkingSso, setCheckingSso] = useState(() => api.mode === 'ems' && !getToken())
+  // login again"): true for the entire duration of bootstrapSsoAuth() --
+  // covers all three cases above uniformly -- keeps both LoginScreen and
+  // the main app from flashing before it resolves either way.
+  const [checkingSso, setCheckingSso] = useState(() => api.mode === 'ems')
   const [companies, setCompanies] = useState<Company[]>([]);
   const [companyId, setCompanyId] = useState('');
 
@@ -159,16 +168,19 @@ function App() {
     return () => setUnauthorizedHandler(null)
   }, [])
 
-  // claude_prompt.txt (this round): a direct visit here never carries the
-  // `#sso=` fragment the EMS button/link appends -- this is the fix. Runs
-  // once; if the browser holds a valid session in another app that shares
-  // this login, the shared cookie signs this tab in with no login page
-  // shown, landing on whatever this page already renders (no redirect, so
-  // the original URL is never lost).
+  // claude_prompt.txt ("v185 -- Fix SSO Fragment Authentication & Permission
+  // Hydration"): runs once per mount while not yet logged in. Delegates to
+  // bootstrapSsoAuth() (api.ts), which itself picks the cookie path
+  // (attemptSsoHydrate, unchanged) or the fragment path
+  // (hydrateFromSsoFragmentToken, validates against GET /auth/me before
+  // trusting the token) and memoizes the choice -- this effect never
+  // re-derives which one to call, so React StrictMode's dev-only
+  // mount -> cleanup -> mount double-invoke can't race it into picking a
+  // different bootstrap the second time.
   useEffect(() => {
     if (api.mode !== 'ems' || loggedIn) return
     let cancelled = false
-    attemptSsoHydrate().then((ok) => {
+    bootstrapSsoAuth().then((ok) => {
       if (cancelled) return
       if (ok) setLoggedIn(true)
       setCheckingSso(false)
@@ -178,11 +190,20 @@ function App() {
     }
   }, [loggedIn])
 
+  // claude_prompt.txt ("v189 -- Unified EMS & Quotation Authentication /
+  // Shared Login Session"): logoutSso() now awaited BEFORE clearing local
+  // state and navigating -- it previously ran after clearSession(), by
+  // which point the local token it needs to identify the caller to the
+  // backend (see api.ts's logoutSso()) was already wiped, and the
+  // immediate navigation right after risked the request never completing
+  // at all. Matches ems-frontend's own current-user.tsx logout(), which
+  // already does it in this order for the same reason.
   const handleLogout = useCallback(() => {
-    setToken(null)
-    setLoggedIn(false)
-    void logoutSso()
-    window.location.href = EMS_FRONTEND_URL
+    void logoutSso().finally(() => {
+      clearSession()
+      setLoggedIn(false)
+      window.location.href = EMS_FRONTEND_URL
+    })
   }, [])
 
   useEffect(() => {
@@ -875,6 +896,25 @@ function App() {
 
   const canSave = validationErrors.length === 0
 
+  // UI-only accessibility mechanism (claude_prompt.txt, "UI-Only
+  // Implementation" round), item 5: lets the error summary below move
+  // keyboard focus to itself after a failed save/export attempt, and lets
+  // its per-field entries move focus to the actual invalid control. Doesn't
+  // change validationErrors/canSave, when they're computed, or anything
+  // about the save/export flow itself -- these refs are read-only targets.
+  const companyFieldRef = useRef<HTMLSelectElement>(null)
+  const quotationDateFieldRef = useRef<HTMLInputElement>(null)
+  const jobDescriptionFieldRef = useRef<HTMLInputElement>(null)
+  const errorSummaryRef = useRef<HTMLDivElement>(null)
+  const errorSummaryFieldRefs: Record<string, RefObject<HTMLElement | null>> = {
+    Company: companyFieldRef,
+    'Quotation Date': quotationDateFieldRef,
+    'Job Description': jobDescriptionFieldRef,
+  }
+  const focusErrorSummary = useCallback(() => {
+    errorSummaryRef.current?.focus()
+  }, [])
+
   const buildQuotationPayload = useCallback(() => {
     const itemsForPdf = items.map((item) => {
       const lineTotal = stockLineTotal(item)
@@ -923,7 +963,15 @@ function App() {
       description: jobDescription.trim(),
       location: location.trim(),
       validUntil,
-      status: 'draft' as const,
+      // Implement -- Quotation Permissions & Accepted Immutability, §7:
+      // `status` removed from this payload entirely. It was previously
+      // hardcoded to 'draft' here regardless of whether this object was
+      // used to create a new quotation or save an existing one -- the
+      // backend now always decides the initial status itself and never
+      // reads a client-supplied one (ems-backend CreateQuotationDto no
+      // longer even has a `status` field), so this field had no correct
+      // value to hold for the update case and is no longer accepted by
+      // either case.
       items: itemsForPdf,
       externalGroups,
       ctlItems: ctlItemsForPdf,
@@ -988,6 +1036,7 @@ function App() {
       setActionError(
         'Please fill required fields: ' + validationErrors.join(', ')
       )
+      focusErrorSummary()
       return null
     }
 
@@ -1018,7 +1067,7 @@ function App() {
     } finally {
       setSaving(false)
     }
-  }, [canSave, validationErrors, buildQuotationPayload, quotationId])
+  }, [canSave, validationErrors, buildQuotationPayload, quotationId, focusErrorSummary])
 
 
   const exportPDF = useCallback(async () => {
@@ -1028,6 +1077,7 @@ function App() {
         'Cannot export until required fields are complete: ' +
         validationErrors.join(', ')
       )
+      focusErrorSummary()
       return
     }
 
@@ -1086,6 +1136,7 @@ function App() {
     companies,
     companyId,
     shippingRule,
+    focusErrorSummary,
   ])
 
   const openQuotationList = useCallback(() => {
@@ -1098,23 +1149,38 @@ function App() {
     setCurrentPage('view')
   }, [])
 
+  // claude_prompt.txt ("v186 -- Quotation Authorization & Editing Workflow
+  // Refactor"): Draft editing is no longer gated by sales.update at all --
+  // "any authenticated user who has access to the quotation" may edit a
+  // Draft, and QuotationView's Edit button (the only caller of this
+  // function) now only renders for Draft quotations in the first place.
+  // The real enforcement is server-side regardless (replace()/update()
+  // unconditionally reject a non-Draft quotation, independent of what this
+  // function does), per "do not rely on frontend visibility alone for
+  // security" -- so this is now just a plain navigation helper, with
+  // nothing left to gate here on the frontend.
   const openQuotationEdit = useCallback((id: string) => {
     setQuotationId(id)
     setViewQuotationId(null)
     setCurrentPage('create')
   }, [])
 
+  // claude_prompt.txt ("v189"): checked BEFORE `!loggedIn` now, not nested
+  // inside it -- `loggedIn` initializes `false` for every ems-mode startup
+  // case (including an existing stored token, this round), so gating only
+  // inside the `!loggedIn` branch would have let the main app render
+  // immediately whenever a stored token happened to exist, with its
+  // verifyExistingSession() check racing in the background instead of
+  // blocking the render. This is what actually makes "stale frontend
+  // state cannot grant access" true, not just the check existing.
+  if (checkingSso) return null
+
   if (!loggedIn) {
-    // claude_prompt.txt (this round): wait for the one-time SSO-bridge
-    // check (above) before showing the login page -- "if there is no
-    // valid session anywhere, show the normal login page exactly as now"
-    // means after checking, not instead of checking.
-    if (checkingSso) return null
     return <LoginScreen onLoggedIn={() => setLoggedIn(true)} />
   }
 
   if (currentPage === 'list') {
-    return <QuotationList onView={openQuotationView} />
+    return <QuotationList onView={openQuotationView} onEdit={openQuotationEdit} />
   }
 
   if (currentPage === 'view' && viewQuotationId) {
@@ -1128,65 +1194,78 @@ function App() {
   }
 
   return (
-    <div className="app">
+    <div className="app qt-create">
       <header className="page-header">
-        <div>
-          <h1>{quotationId ? 'Edit Quotation' : 'New Quotation'}</h1>
-          <p>Customer, items, CTL, and totals</p>
-        </div>
+        <div className="page-header-inner">
+          <div>
+            <h1>{quotationId ? 'Edit Quotation' : 'New Quotation'}</h1>
+            <p>Customer, items, CTL, and totals</p>
+          </div>
 
-        <div className="page-header-actions">
-          <button
-            type="button"
-            className="btn btn-outline"
-            onClick={openQuotationList}
-          >
-            Quotation List
-          </button>
-
-          {quotationId && (
+          <div className="page-header-actions">
             <button
               type="button"
-              className="btn btn-primary"
-              onClick={() => openQuotationView(quotationId)}
+              className="btn btn-outline"
+              onClick={openQuotationList}
             >
-              View Quotation
+              Quotation List
             </button>
-          )}
 
-          {api.mode === 'ems' && (
-            <>
-              <a href={EMS_FRONTEND_URL} className="btn btn-outline">
-                ← Back to Cirrus
-              </a>
-
+            {quotationId && (
               <button
                 type="button"
-                className="btn btn-outline"
-                onClick={handleLogout}
+                className="btn btn-primary"
+                onClick={() => openQuotationView(quotationId)}
               >
-                Log out
+                View Quotation
               </button>
-            </>
-          )}
+            )}
+
+            {api.mode === 'ems' && (
+              <>
+                <a href={EMS_FRONTEND_URL} className="btn btn-outline qt-back-link">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#334155" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M13 8H3M7 4L3 8l4 4" /></svg>
+                  Back to Cirrus
+                </a>
+
+                <span className="qt-logout-separator">
+                  <button
+                    type="button"
+                    className="btn btn-outline qt-logout-btn"
+                    onClick={handleLogout}
+                  >
+                    Log out
+                  </button>
+                </span>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
-      <main className="quotation-page">
+      <main className="quotation-page qt-main">
+        <div className="qt-left-col">
         <section className="card">
           <div className="section-header">
             <div>
               <h2>Details</h2>
               <p>Company, customer, project, and dates</p>
             </div>
+
+            <p className="qt-required-legend">
+              <span aria-hidden="true">*</span> Required field
+            </p>
           </div>
 
           <div className="form-grid">
             {/* 1. Company + Quotation No. */}
-            <div className="form-group">
-              <label htmlFor="quotation-company">Company</label>
+            <div className="form-group form-group-wide">
+              <label htmlFor="quotation-company">
+                Company <span aria-hidden="true">*</span>
+              </label>
               <select
                 id="quotation-company"
+                ref={companyFieldRef}
                 value={companyId}
                 onChange={(e) => setCompanyId(e.target.value)}
               >
@@ -1199,9 +1278,10 @@ function App() {
               </select>
             </div>
 
-            <div className="form-group">
-              <label>Quotation No.</label>
+            <div className="form-group form-group-wide">
+              <label htmlFor="quotation-no">Quotation No.</label>
               <input
+                id="quotation-no"
                 type="text"
                 value={quotationNo}
                 placeholder="Generated when saved"
@@ -1209,10 +1289,14 @@ function App() {
               />
             </div>
 
-            {/* 2. Quotation Date + Valid Until */}
+            {/* 2. Quotation Date + Valid Until + Project */}
             <div className="form-group">
-              <label>Quotation Date</label>
+              <label htmlFor="quotation-date">
+                Quotation Date <span aria-hidden="true">*</span>
+              </label>
               <input
+                id="quotation-date"
+                ref={quotationDateFieldRef}
                 type="date"
                 value={quotationDate}
                 onChange={(e) => setQuotationDate(e.target.value)}
@@ -1220,12 +1304,11 @@ function App() {
             </div>
 
             <div className="form-group">
-              <label>Valid Until</label>
-              <input type="date" value={validUntil} readOnly />
+              <label htmlFor="quotation-valid-until">Valid Until</label>
+              <input id="quotation-valid-until" type="date" value={validUntil} readOnly />
             </div>
 
-            {/* 3. Project + Location */}
-            <div className="form-group">
+            <div className="form-group form-group-wide">
               <label>Project</label>
               <ComboInput
                 value={projectName}
@@ -1258,9 +1341,33 @@ function App() {
               />
             </div>
 
-            <div className="form-group">
-              <label>Location</label>
+            {/* 3. Customer + Location */}
+            <div className="form-group form-group-wide">
+              <label>
+                Customer <span aria-hidden="true">*</span>
+              </label>
+              <ComboInput
+                value={customerName}
+                onChange={(text) => {
+                  setCustomerName(text)
+                  const match = customerOptions.find(
+                    (o) => o.label === text || o.id === text,
+                  )
+                  setClientId(match?.id ?? null)
+                }}
+                placeholder="Type or select customer"
+                options={customerOptions}
+                onSelect={(opt) => {
+                  setCustomerName(opt.label)
+                  setClientId(opt.id)
+                }}
+              />
+            </div>
+
+            <div className="form-group form-group-wide">
+              <label htmlFor="quotation-location-details">Location</label>
               <select
+                id="quotation-location-details"
                 value={location}
                 onChange={(e) => {
                   const selectedLocation = e.target.value
@@ -1288,33 +1395,16 @@ function App() {
 
             {/* 4. Job Description */}
             <div className="form-group form-group-wide">
-              <label>Job Description</label>
+              <label htmlFor="job-description">
+                Job Description <span aria-hidden="true">*</span>
+              </label>
               <input
+                id="job-description"
+                ref={jobDescriptionFieldRef}
                 type="text"
                 value={jobDescription}
                 onChange={(e) => setJobDescription(e.target.value)}
                 placeholder="Enter job description"
-              />
-            </div>
-
-            {/* 5. Customer */}
-            <div className="form-group form-group-wide">
-              <label>Customer</label>
-              <ComboInput
-                value={customerName}
-                onChange={(text) => {
-                  setCustomerName(text)
-                  const match = customerOptions.find(
-                    (o) => o.label === text || o.id === text,
-                  )
-                  setClientId(match?.id ?? null)
-                }}
-                placeholder="Type or select customer"
-                options={customerOptions}
-                onSelect={(opt) => {
-                  setCustomerName(opt.label)
-                  setClientId(opt.id)
-                }}
               />
             </div>
           </div>
@@ -1479,6 +1569,7 @@ function App() {
                                 type="button"
                                 className="remove-btn"
                                 title="Remove item"
+                                aria-label="Remove item"
                                 onClick={() => removeItem(item.id)}
                               >
                                 ×
@@ -1600,6 +1691,7 @@ function App() {
                                 type="button"
                                 className="remove-btn"
                                 title="Remove part"
+                                aria-label="Remove part"
                                 onClick={() =>
                                   removeExternalPart(group.id, part.id)
                                 }
@@ -1953,7 +2045,6 @@ function App() {
           </div>
         </section>
 
-        <div className="summary-layout">
           <section className="quotation-notes-preview">
             <div className="section-header">
               <div>
@@ -1990,7 +2081,9 @@ function App() {
               />
             </div>
           </section>
+        </div>
 
+        <aside className="qt-right-col">
           <section className="summary-card">
             <div className="summary-row">
               <span>Subtotal</span>
@@ -2058,22 +2151,60 @@ function App() {
               <strong>฿ {totalDue.toFixed(2)}</strong>
             </div>
           </section>
-        </div>
 
         <div className="quotation-actions">
           {!canSave && (
-            <p className="quotation-actions-hint">
-              Complete required fields before save/export:{' '}
-              {validationErrors.join(', ')}
-            </p>
+            <div
+              ref={errorSummaryRef}
+              tabIndex={-1}
+              role="alert"
+              aria-atomic="true"
+              className="quotation-actions-hint"
+            >
+              <p className="qt-error-summary-title">Complete required fields before save/export:</p>
+              <ul className="qt-error-summary-list">
+                {validationErrors.map((fieldLabel) => {
+                  const fieldRef = errorSummaryFieldRefs[fieldLabel]
+                  return (
+                    <li key={fieldLabel}>
+                      {fieldRef ? (
+                        <button
+                          type="button"
+                          className="qt-error-summary-link"
+                          onClick={() => fieldRef.current?.focus()}
+                        >
+                          {fieldLabel}
+                        </button>
+                      ) : (
+                        fieldLabel
+                      )}
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
           )}
 
           {actionError && (
-            <p className="quotation-actions-error">{actionError}</p>
+            <p
+              className="quotation-actions-error"
+              role="alert"
+              aria-live="assertive"
+              aria-atomic="true"
+            >
+              {actionError}
+            </p>
           )}
 
           {actionSuccess && (
-            <p className="quotation-actions-success">{actionSuccess}</p>
+            <p
+              className="quotation-actions-success"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {actionSuccess}
+            </p>
           )}
 
           <div className="quotation-actions-buttons">
@@ -2096,6 +2227,7 @@ function App() {
             </button>
           </div>
         </div>
+        </aside>
 
       </main>
 

@@ -271,6 +271,15 @@
   white-space: nowrap;
 }
 
+.quotation-created-by {
+  display: block;
+  max-width: 150px;
+  overflow: hidden;
+  color: #6e7885;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .quotation-table-number {
   text-align: right !important;
   white-space: nowrap;
@@ -368,7 +377,11 @@
 }
 
 .quotation-view-cell {
-  width: 62px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  width: auto;
+  white-space: nowrap;
   text-align: right;
 }
 
@@ -529,4 +542,435 @@
 .company-cs {
   color: #6d28d9;
   background: #ede9fe;
+}
+
+/* ====================================================================
+   claude_prompt.txt ("Restyle the Quotation List page to 'Navy + Sky'
+   ... Part A"). Everything below is scoped under .qt-list (added
+   alongside the existing root class in QuotationList.tsx) so no other
+   page is affected, same approach as .qt-create in index.css. Nothing
+   above this point was edited -- these rules only add new color/size/
+   layout declarations on top of the existing selectors; no handler,
+   state, API call, or condition changed.
+   ==================================================================== */
+
+.qt-list.quotation-list-page {
+  max-width: 1440px;
+  padding: 24px;
+  background: #EDF2F8;
+  color: #0F172A;
+}
+
+.qt-list input:focus-visible,
+.qt-list select:focus-visible,
+.qt-list button:focus-visible,
+.qt-list a:focus-visible {
+  outline: 2px solid #0284C7;
+  outline-offset: 1px;
+}
+
+/* ---------- Header band ---------- */
+
+.qt-list .quotation-list-header {
+  flex-wrap: wrap;
+  gap: 16px;
+  /* Bleeds to the edges of this page's own 1440px/24px-padded container
+     (not the raw viewport) -- see progress_log_v2.md for why. */
+  margin: -24px -24px 24px;
+  padding: 32px 24px;
+  background: #0B1F3A;
+}
+
+.qt-list .quotation-list-eyebrow {
+  color: #B6C4D8;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.qt-list .quotation-list-header h1 {
+  color: #FFFFFF;
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.qt-list .quotation-list-header p {
+  color: #B6C4D8;
+  font-size: 13px;
+}
+
+.qt-list .quotation-btn {
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.qt-list .quotation-btn-secondary {
+  border-color: #CBD5E1;
+  background: #fff;
+  color: #0F172A;
+}
+
+.qt-list .quotation-btn-secondary:hover {
+  background: #F8FAFC;
+}
+
+.qt-list .quotation-btn-primary {
+  border-color: #0369A1;
+  background: #0369A1;
+  color: #fff;
+}
+
+.qt-list .quotation-btn-primary:hover {
+  background: #075985;
+  border-color: #075985;
+}
+
+/* ---------- Summary tiles ---------- */
+
+.qt-list .quotation-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.qt-list .quotation-stat-card {
+  padding: 16px 20px;
+  border-radius: 12px;
+}
+
+.qt-list .quotation-stat-card span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-size: 13px;
+}
+
+.qt-list .quotation-stat-card strong {
+  font-size: 28px;
+  line-height: 36px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.qt-list .qt-stat-draft span::before,
+.qt-list .qt-stat-sent span::before,
+.qt-list .qt-stat-accepted span::before,
+.qt-list .qt-stat-rejected span::before,
+.qt-list .qt-stat-expired span::before {
+  content: '';
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.qt-list .qt-stat-draft span::before { background: #64748B; }
+.qt-list .qt-stat-sent span::before { background: #0284C7; }
+.qt-list .qt-stat-accepted span::before { background: #16A34A; }
+.qt-list .qt-stat-rejected span::before { background: #DC2626; }
+.qt-list .qt-stat-expired span::before { background: #D97706; }
+
+/* ---------- Card + toolbar ---------- */
+
+.qt-list .quotation-list-card {
+  border-radius: 12px;
+  border-color: #E2E8F0;
+}
+
+.qt-list .quotation-list-toolbar {
+  flex-wrap: wrap;
+  min-height: auto;
+  padding: 16px 20px;
+  border-bottom-color: #E2E8F0;
+}
+
+.qt-list .quotation-list-toolbar-left {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.qt-list .quotation-search {
+  flex: 1 1 320px;
+  min-width: 240px;
+  width: auto;
+}
+
+.qt-list .quotation-search svg {
+  left: 14px;
+  color: #475569;
+}
+
+.qt-list .quotation-search input,
+.qt-list .quotation-filter {
+  height: 44px;
+  border-color: #CBD5E1;
+  border-radius: 8px;
+  font-size: 15px;
+}
+
+.qt-list .quotation-search input {
+  padding-left: 40px;
+}
+
+.qt-list .quotation-filter {
+  min-width: 0;
+}
+
+/* Company/status selects share .quotation-filter with the date inputs
+   above -- the custom chevron is scoped to the <select>s only, so the
+   date inputs' own native calendar icon is never touched. */
+.qt-list select.quotation-filter {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 20 20' fill='none' stroke='%23475569' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 7 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.qt-list .quotation-list-toolbar-left > select.quotation-filter:nth-of-type(1) {
+  width: 180px;
+}
+
+.qt-list .quotation-list-toolbar-left > select.quotation-filter:nth-of-type(2) {
+  width: 160px;
+}
+
+.qt-list .quotation-date-filter label {
+  font-weight: 600;
+  color: #334155;
+}
+
+.qt-list .quotation-date-filter input[type="date"] {
+  width: 160px;
+}
+
+.qt-list .quotation-result-count {
+  color: #64748B;
+  font-size: 13px;
+}
+
+.qt-list .quotation-list-error {
+  border-color: #FECACA;
+  background: #FEF2F2;
+  color: #B91C1C;
+}
+
+.qt-list .quotation-list-message,
+.qt-list .quotation-list-empty span {
+  color: #64748B;
+}
+
+/* ---------- Table ---------- */
+
+.qt-list .quotation-table {
+  min-width: 1240px;
+  font-size: 14px;
+}
+
+.qt-list .quotation-table thead th {
+  height: auto;
+  padding: 12px 16px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: #475569;
+  background: #F8FAFC;
+  border-bottom-color: #E2E8F0;
+}
+
+.qt-list .quotation-table thead th:first-child {
+  padding-left: 20px;
+}
+
+.qt-list .quotation-table thead th:last-child {
+  padding-right: 20px;
+}
+
+.qt-list .quotation-table tbody td {
+  height: auto;
+  padding: 14px 16px;
+  vertical-align: middle;
+  border-bottom-color: #F1F5F9;
+  color: #334155;
+}
+
+.qt-list .quotation-table tbody tr:hover {
+  background: #F8FAFC;
+}
+
+.qt-list .quotation-number {
+  color: #0369A1;
+}
+
+.qt-list .qt-list-cell-sub-wrap {
+  margin-top: 6px;
+}
+
+.qt-list .qt-list-cell-sub {
+  display: block;
+  margin-top: 4px;
+  color: #64748B;
+  font-size: 13px;
+}
+
+.qt-list .quotation-customer strong {
+  font-weight: 500;
+  color: #0F172A;
+}
+
+.qt-list .quotation-job-description {
+  display: -webkit-box;
+  max-width: 340px;
+  overflow: hidden;
+  color: #334155;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.qt-list .quotation-created-by {
+  color: #64748B;
+}
+
+.qt-list .quotation-table-number strong {
+  color: #0F172A;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Company chip ---------- */
+
+.qt-list .quotation-company-code {
+  height: 22px;
+  min-width: 0;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: normal;
+  background: #F1F5F9;
+  color: #334155;
+}
+
+.qt-list .company-cm {
+  background: #E0F2FE;
+  color: #075985;
+}
+
+.qt-list .company-cs {
+  background: #EEF0FF;
+  color: #4338CA;
+}
+
+/* ---------- Status control ---------- */
+
+.qt-list .quotation-status-control {
+  width: 132px;
+  height: 36px;
+  min-width: 0;
+  padding: 0 30px 0 28px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.qt-list .quotation-status-dot {
+  position: absolute;
+  left: 8px;
+}
+
+.qt-list .quotation-status-control > svg {
+  position: absolute;
+  right: 8px;
+  margin-left: 0;
+}
+
+.qt-list .status-draft {
+  background: #F1F5F9;
+  color: #334155;
+  border-color: #E2E8F0;
+}
+.qt-list .status-draft .quotation-status-dot { background: #64748B; }
+
+.qt-list .status-sent {
+  background: #F0F9FF;
+  color: #075985;
+  border-color: #BAE6FD;
+}
+.qt-list .status-sent .quotation-status-dot { background: #0284C7; }
+
+.qt-list .status-accepted {
+  background: #ECFDF3;
+  color: #166534;
+  border-color: #BBF7D0;
+}
+.qt-list .status-accepted .quotation-status-dot { background: #16A34A; }
+
+.qt-list .status-rejected {
+  background: #FEF2F2;
+  color: #B91C1C;
+  border-color: #FECACA;
+}
+.qt-list .status-rejected .quotation-status-dot { background: #DC2626; }
+
+.qt-list .status-expired {
+  background: #FFFBEB;
+  color: #B45309;
+  border-color: #FDE68A;
+}
+.qt-list .status-expired .quotation-status-dot { background: #D97706; }
+
+/* ---------- Row action buttons ---------- */
+
+.qt-list .quotation-view-cell {
+  gap: 8px;
+}
+
+.qt-list .quotation-view-button {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border-color: #CBD5E1;
+  color: #0F172A;
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.qt-list .quotation-cost-profit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-color: #BAE6FD;
+  color: #0369A1;
+  text-decoration: none;
+}
+
+.qt-list .quotation-cost-profit-button:hover {
+  background: #F0F9FF;
+  color: #075985;
+  border-color: #BAE6FD;
+}
+
+.qt-list .quotation-cost-profit-button svg {
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
+
+/* ---------- Tabular numerics everywhere ---------- */
+
+.qt-list .quotation-table,
+.qt-list .quotation-stat-card strong {
+  font-variant-numeric: tabular-nums;
 }

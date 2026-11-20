@@ -1488,23 +1488,101 @@ tbody tr:hover td {
   font-size: 13px;
 }
 
-/* ---------- Login ---------- */
+/* ---------- Login ----------
+   claude_prompt.txt ("v187 -- Quotation Login UI Alignment with EMS"):
+   visual match for ems-frontend's LoginPage.tsx (min-h-screen centered
+   flex, bg-muted/30, Card max-w-sm, accent icon circle, centered
+   header, full-width submit) -- reproduced with this app's own plain
+   CSS custom properties (see :root above) rather than installing
+   Tailwind/shadcn, which this app doesn't otherwise use. */
 
 .login-page {
+  min-height: 100vh;
+  display: flex;
   align-items: center;
-  padding-top: 80px;
+  justify-content: center;
+  padding: 16px;
+  background: var(--paper);
 }
 
 .login-card {
   width: 100%;
-  max-width: 360px;
-  padding: 16px;
+  max-width: 384px;
+  padding: 28px 24px 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 8px 24px rgba(17, 24, 39, 0.06);
 }
 
-.login-card form {
+.login-card-header {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.login-card-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--blue);
+  color: #fff;
+}
+
+.login-card-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.login-card-accent {
+  color: var(--blue);
+}
+
+.login-card-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--steel-light);
+}
+
+.login-card-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-error {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-bg);
+  border-radius: 6px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  font-size: 12px;
+  text-align: left;
+}
+
+.login-submit {
+  width: 100%;
+  height: 38px;
+}
+
+@media (max-width: 480px) {
+  .login-page {
+    padding: 12px;
+  }
+
+  .login-card {
+    padding: 22px 18px 18px;
+  }
 }
 
 .ctl-staff-section {
@@ -1636,5 +1714,763 @@ tbody tr:hover td {
 @media (prefers-reduced-motion: reduce) {
   * {
     transition: none !important;
+  }
+}
+
+/* =====================================================================
+   "Navy + Sky" restyle -- New Quotation page only (claude_prompt.txt).
+   Every rule below is scoped under .qt-create (the New Quotation page's
+   own root wrapper). Nothing above this point was edited, so LoginScreen,
+   QuotationView, QuotationList, and the two create-flow modals (which
+   share several of the class names restyled here) render exactly as
+   before -- scoping is by ancestor class, not by selector rewrite, so
+   these rules cannot match outside this page's own DOM subtree.
+   ===================================================================== */
+
+.qt-create {
+  background: #EDF2F8;
+  min-height: 100vh;
+}
+
+/* ---------- Header ---------- */
+
+.qt-create .page-header {
+  background: #0B1F3A;
+  border-bottom: 1px solid #0B1F3A;
+  padding: 0;
+  display: block;
+}
+
+.qt-create .page-header-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.qt-create .page-header h1 {
+  font-size: 22px;
+  line-height: 28px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #FFFFFF;
+}
+
+.qt-create .page-header p {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 18px;
+  color: #B6C4D8;
+}
+
+.qt-create .page-header-actions {
+  gap: 8px;
+}
+
+.qt-create .page-header-actions .btn-outline,
+.qt-create .page-header-actions .btn-primary {
+  height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.qt-create .page-header-actions .btn-outline {
+  color: #0F172A;
+  text-decoration: none;
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+}
+
+.qt-create .qt-back-link {
+  gap: 8px;
+}
+
+.qt-create .qt-logout-separator {
+  display: inline-flex;
+  margin-left: 8px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(226, 232, 240, 0.35);
+}
+
+.qt-create .page-header-actions .btn-outline.qt-logout-btn {
+  color: #E2E8F0;
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+/* ---------- Main layout: left column + aside ---------- */
+
+.qt-create .quotation-page {
+  max-width: 1200px;
+  padding: 24px;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.qt-create .qt-left-col {
+  flex: 999 1 560px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.qt-create .qt-right-col {
+  flex: 1 1 300px;
+  min-width: 0;
+  position: sticky;
+  top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (max-width: 640px) {
+  .qt-create .qt-right-col {
+    position: static;
+  }
+}
+
+/* ---------- Focus ring (inputs, selects, textarea, links, buttons) ---------- */
+
+.qt-create input:focus-visible,
+.qt-create select:focus-visible,
+.qt-create textarea:focus-visible,
+.qt-create a:focus-visible,
+.qt-create button:focus-visible {
+  outline: 2px solid #0284C7;
+  outline-offset: 1px;
+}
+
+/* ---------- Cards ---------- */
+
+.qt-create .card,
+.qt-create .quotation-notes-preview,
+.qt-create .summary-card {
+  background: #FFFFFF;
+  border: 1px solid #E2E8F0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+
+.qt-create .card.ctl-card,
+.qt-create .card:has(.item-actions) {
+  overflow: hidden;
+}
+
+.qt-create .section-header {
+  padding: 20px 24px 0;
+  border-bottom: none;
+  flex-wrap: wrap;
+}
+
+.qt-create .section-header h2 {
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  color: #0F172A;
+}
+
+.qt-create .section-header p {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 18px;
+  color: #64748B;
+}
+
+.qt-create .qt-required-legend {
+  margin: 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: #64748B;
+  align-self: flex-end;
+  margin-left: auto;
+}
+
+.qt-create .section-header > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* ---------- Fields (all cards) ---------- */
+
+.qt-create .form-group label,
+.qt-create .ctl-form-field label {
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 600;
+  color: #334155;
+  margin-bottom: 6px;
+}
+
+.qt-create .form-group input,
+.qt-create .form-group select,
+.qt-create .combo input,
+.qt-create .ctl-form-field .table-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 44px;
+  padding: 0 12px;
+  font-size: 15px;
+  border-radius: 8px;
+  border: 1px solid #CBD5E1;
+  background: #FFFFFF;
+  color: #0F172A;
+}
+
+.qt-create .form-group input::placeholder,
+.qt-create .combo input::placeholder {
+  color: #64748B;
+}
+
+.qt-create .form-group select,
+.qt-create select.table-input {
+  appearance: none;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%23475569' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px top 14px;
+  background-size: 16px 16px;
+  color: #64748B;
+}
+
+.qt-create .form-group select:has(option[value]:not([value=""]):checked),
+.qt-create select.table-input:has(option[value]:not([value=""]):checked) {
+  color: #0F172A;
+}
+
+.qt-create .form-group input[readonly] {
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+  color: #475569;
+}
+
+/* ---------- Details card ---------- */
+
+.qt-create .form-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px 16px;
+  padding: 20px 24px 24px;
+}
+
+.qt-create .form-group-wide {
+  grid-column: span 2;
+}
+
+@media (max-width: 640px) {
+  .qt-create .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .qt-create .form-group-wide {
+    grid-column: span 1;
+  }
+}
+
+/* ---------- Items card ---------- */
+
+.qt-create .item-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+  row-gap: 12px;
+  align-items: center;
+}
+
+.qt-create .item-actions .btn-secondary,
+.qt-create .item-actions .btn-outline {
+  height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #0369A1;
+  background: #FFFFFF;
+  border: 1px solid #BAE6FD;
+  border-radius: 8px;
+}
+
+.qt-create .item-actions .btn-secondary:hover,
+.qt-create .item-actions .btn-outline:hover {
+  color: #075985;
+}
+
+.qt-create .card > .table-wrapper,
+.qt-create .card > .external-groups {
+  padding-left: 24px;
+  padding-right: 24px;
+}
+
+.qt-create .quotation-items-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 112px;
+  font-size: 14px;
+  color: #64748B;
+  background: #F8FAFC;
+  border: 1px dashed #CBD5E1;
+  border-radius: 10px;
+  margin: 20px 24px;
+}
+
+.qt-create .items-sticky-totals {
+  padding: 14px 24px;
+  background: #F8FAFC;
+  border-top: 1px solid #E2E8F0;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px 24px;
+}
+
+.qt-create .items-sticky-totals > span {
+  display: flex;
+  gap: 8px 24px;
+}
+
+.qt-create .items-sticky-totals .totals-label {
+  color: #475569;
+}
+
+.qt-create .items-sticky-totals .totals-figure {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  color: #0F172A;
+}
+
+.qt-create .items-sticky-totals .totals-figure.grand {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0369A1;
+}
+
+/* Non-empty item rows are not redesigned (per spec); only old design
+   tokens that have a direct equivalent in the new palette are swapped:
+   var(--blue) -> accent #0369A1, var(--steel)/var(--steel-light) -> the
+   new secondary/muted text tokens. Decorative amber/red (.edited-tag,
+   .source-badge.external, .remove-btn:hover) are left as-is -- no
+   counterpart in the spec, and the spec says keep the code's behaviour
+   in that case. */
+
+.qt-create .reset-link {
+  color: #0369A1;
+}
+
+.qt-create .row-auto td {
+  color: #64748B;
+}
+
+.qt-create .row-auto td.number {
+  color: #475569;
+}
+
+.qt-create .auto-tag {
+  color: #64748B;
+}
+
+.qt-create .remove-btn {
+  color: #64748B;
+}
+
+/* ---------- Numbers: tabular-nums in Inter, replacing the mono font
+   (money, days, hours, counts, table amounts) everywhere on this page.
+   Currency string format itself (the "฿ " formatter) is untouched --
+   only the font changes. ---------- */
+
+.qt-create .number,
+.qt-create .table-input.number-input,
+.qt-create .number-input,
+.qt-create .day-badge,
+.qt-create .external-part-total,
+.qt-create .external-part-price,
+.qt-create .external-group-shipping strong {
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- CTL Cost card ---------- */
+
+.qt-create .ctl-form {
+  background: transparent;
+  border-bottom: none;
+  padding: 20px 24px;
+}
+
+.qt-create .ctl-form-grid-compact {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 20px 16px;
+}
+
+.qt-create .ctl-field-location {
+  grid-column: span 3;
+}
+
+.qt-create .ctl-field-sm,
+.qt-create .ctl-field-md {
+  grid-column: span 1;
+}
+
+.qt-create .ctl-field-sm .table-input,
+.qt-create #ctl-days,
+.qt-create #ctl-hours,
+.qt-create #ctl-fuel {
+  font-variant-numeric: tabular-nums;
+}
+
+.qt-create .ctl-staff-section {
+  margin: 0 24px 24px;
+  padding: 16px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.qt-create .ctl-staff-heading {
+  margin-bottom: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  color: #0F172A;
+}
+
+.qt-create .ctl-staff-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.qt-create .ctl-card .table-wrapper {
+  border-top: 1px solid #E2E8F0;
+}
+
+.qt-create .ctl-card table {
+  min-width: 720px;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.qt-create .ctl-card thead th {
+  background: #F8FAFC;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+  border-bottom: 1px solid #E2E8F0;
+}
+
+.qt-create .ctl-card .ctl-checkbox-cell {
+  width: 52px;
+  padding: 12px 0;
+}
+
+.qt-create .ctl-card thead th:nth-child(2) {
+  text-align: left;
+  padding: 12px 16px 12px 0;
+}
+
+.qt-create .ctl-card thead th:nth-child(3) {
+  text-align: left;
+  padding: 12px 16px;
+}
+
+.qt-create .ctl-card thead th:nth-child(4),
+.qt-create .ctl-card thead th:nth-child(5) {
+  text-align: right;
+  padding: 12px 16px;
+}
+
+.qt-create .ctl-card thead th:nth-child(6) {
+  text-align: right;
+  padding: 12px 24px 12px 16px;
+}
+
+.qt-create .ctl-card tbody td {
+  border-bottom: 1px solid #F1F5F9;
+}
+
+.qt-create .ctl-card .ctl-checkbox-cell {
+  text-align: center;
+}
+
+.qt-create .ctl-card .ctl-checkbox-cell input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #0284C7;
+}
+
+.qt-create .ctl-card .ctl-label {
+  padding: 14px 16px 14px 0;
+  color: #64748B;
+}
+
+.qt-create .ctl-card .ctl-label.included {
+  color: #0F172A;
+}
+
+.qt-create .ctl-card tbody td:nth-child(3) {
+  padding: 14px 16px;
+}
+
+.qt-create .ctl-card .ctl-calculation span:first-child {
+  font-weight: 500;
+  color: #0F172A;
+}
+
+.qt-create .ctl-card .ctl-calculation span:nth-child(2) {
+  font-size: 13px;
+  color: #64748B;
+}
+
+.qt-create .ctl-card tbody td.number {
+  padding: 14px 16px;
+  color: #64748B;
+}
+
+.qt-create .ctl-card tbody tr td:last-child.number {
+  padding: 14px 24px 14px 16px;
+}
+
+.qt-create .ctl-card tbody td.number:not(:empty) {
+  color: #0F172A;
+}
+
+.qt-create .ctl-card tfoot td,
+.qt-create .ctl-card tbody tr:last-child td {
+  background: #F8FAFC;
+}
+
+/* ---------- Note card ---------- */
+
+.qt-create .quotation-notes-preview .section-header {
+  border-bottom: none;
+}
+
+.qt-create .quotation-note-editor {
+  padding: 16px 24px 24px;
+}
+
+.qt-create .quotation-note-textarea {
+  min-height: 132px;
+  padding: 12px;
+  font-size: 14px;
+  line-height: 22px;
+  color: #0F172A;
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+}
+
+.qt-create .quotation-notes-preview .btn-outline {
+  height: 44px;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #0F172A;
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+}
+
+/* ---------- Totals card (aside) ---------- */
+
+.qt-create .summary-card {
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.qt-create .summary-row {
+  padding: 12px 20px;
+  border-bottom: 1px solid #F1F5F9;
+  gap: 12px;
+}
+
+.qt-create .summary-row span {
+  color: #475569;
+}
+
+.qt-create .summary-row strong {
+  font-family: var(--font-ui);
+  color: #0F172A;
+}
+
+.qt-create .summary-row:has(.summary-input-group) {
+  padding: 8px 20px;
+}
+
+.qt-create .summary-row:nth-last-child(3) {
+  border-bottom: none;
+}
+
+.qt-create .discount-value {
+  color: #0F172A !important;
+}
+
+.qt-create .summary-input-group {
+  gap: 8px;
+}
+
+.qt-create .summary-input {
+  width: 72px;
+  height: 36px;
+  padding: 0 10px;
+  font-size: 14px;
+  font-family: var(--font-ui);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid #CBD5E1;
+  border-radius: 8px;
+  background: #FFFFFF;
+}
+
+.qt-create .summary-input-group span {
+  color: #475569;
+}
+
+.qt-create .summary-row.grand-total {
+  padding: 16px 20px;
+  background: #F8FAFC;
+  border-top: 1px solid #E2E8F0;
+  align-items: baseline;
+}
+
+.qt-create .summary-row.grand-total span {
+  font-weight: 600;
+  color: #334155;
+}
+
+.qt-create .summary-row.grand-total strong {
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  color: #0369A1;
+}
+
+/* ---------- Required-fields message (aside) ---------- */
+
+.qt-create .quotation-actions {
+  align-items: stretch;
+  margin: 0;
+}
+
+.qt-create .quotation-actions-hint {
+  text-align: left;
+  font-size: 13px;
+  line-height: 20px;
+  color: #B45309;
+  max-width: none;
+}
+
+.qt-create .qt-error-summary-title {
+  margin: 0;
+  font-weight: 600;
+}
+
+.qt-create .qt-error-summary-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.qt-create .qt-error-summary-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: #B45309;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.qt-create .quotation-actions-error,
+.qt-create .quotation-actions-success {
+  text-align: left;
+  max-width: none;
+}
+
+/* ---------- Buttons (aside) ---------- */
+
+.qt-create .quotation-actions-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  justify-content: stretch;
+}
+
+.qt-create .quotation-actions-buttons .btn {
+  height: 44px;
+  padding: 0 12px;
+  font-size: 14px;
+  border-radius: 8px;
+}
+
+.qt-create .quotation-actions-buttons .btn-outline {
+  color: #0F172A;
+  background: #FFFFFF;
+  border: 1px solid #CBD5E1;
+}
+
+.qt-create .quotation-actions-buttons .btn-outline:disabled {
+  font-weight: 500;
+  color: #64748B;
+  background: #F1F5F9;
+  border-color: #E2E8F0;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.qt-create .quotation-actions-buttons .btn-primary:disabled {
+  font-weight: 600;
+  color: #FFFFFF;
+  background: #7FB4D6;
+  border-color: #7FB4D6;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+/* ---------- Accent recolour -- BUTTONS (aside) only: "where the existing
+   primary blue is used, use #0369A1 (hover #075985)". Scoped to the
+   Export PDF button specifically (the one existing btn-primary usage this
+   spec section actually names) -- the header's "View Quotation" btn-primary
+   has no counterpart in the spec and keeps its original colour; see report. */
+
+.qt-create .quotation-actions-buttons .btn-primary {
+  background: #0369A1;
+}
+
+.qt-create .quotation-actions-buttons .btn-primary:hover:not(:disabled) {
+  background: #075985;
+}
+
+/* ---------- Responsive: single column below 640px ---------- */
+
+@media (max-width: 640px) {
+  .qt-create .quotation-page {
+    flex-direction: column;
+  }
+
+  .qt-create .qt-left-col,
+  .qt-create .qt-right-col {
+    flex-basis: auto;
+    width: 100%;
   }
 }

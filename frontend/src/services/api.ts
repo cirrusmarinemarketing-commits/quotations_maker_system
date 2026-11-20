@@ -10,14 +10,6 @@ export type Company = {
 export const API_MODE: ApiMode =
   (import.meta.env.VITE_API_MODE as string | undefined) === 'ems' ? 'ems' : 'legacy'
 
-// claude_prompt.txt (EMS hardening): the matching env var wins when set.
-// When it isn't, default to the HOSTNAME this page was itself loaded from
-// (not a hardcoded "localhost"), so a browser opened from another machine
-// on the LAN calls that same host's backend/SSO target instead of trying
-// to reach "localhost" on the viewer's own machine. On the dev machine
-// itself (localhost in the address bar) this is byte-identical to the old
-// hardcoded defaults. `typeof window === 'undefined'` guard matches this
-// file's own existing style (see consumeSsoFragmentToken below).
 function currentOriginBase(port: number): string {
   if (typeof window === 'undefined') return `http://localhost:${port}`
   return `${window.location.protocol}//${window.location.hostname}:${port}`
@@ -33,12 +25,22 @@ export const EMS_FRONTEND_URL =
   (import.meta.env.VITE_EMS_FRONTEND_URL as string | undefined) || currentOriginBase(5174)
 
 const TOKEN_KEY = 'qt_ems_token'
+const PERMISSIONS_KEY = 'qt_ems_permissions'
 
 function readStoredToken(): string | null {
   try {
     return sessionStorage.getItem(TOKEN_KEY)
   } catch {
     return null
+  }
+}
+
+function readStoredPermissions(): string[] {
+  try {
+    const raw = sessionStorage.getItem(PERMISSIONS_KEY)
+    return raw ? (JSON.parse(raw) as string[]) : []
+  } catch {
+    return []
   }
 }
 
@@ -55,6 +57,26 @@ function consumeSsoFragmentToken(): string | null {
 }
 
 const ssoToken = API_MODE === 'ems' ? consumeSsoFragmentToken() : null
+
+// claude_prompt.txt ("v185 -- Fix SSO Fragment Authentication & Permission
+// Hydration"): a fragment token means a (possibly different) account is
+// arriving fresh -- any permissions already sitting in this tab's
+// sessionStorage belong to whichever session was here before and must
+// never be trusted for the incoming one. Cleared synchronously, before
+// `permissions` below ever reads storage.
+if (ssoToken) {
+  try {
+    sessionStorage.removeItem(PERMISSIONS_KEY)
+  } catch {
+    // sessionStorage unavailable -- nothing to clear.
+  }
+}
+
+// True from module load until hydrateFromSsoFragmentToken() below actually
+// runs. While true, `token` may already be set (from the fragment) but has
+// NOT been validated against the backend yet -- callers (App.tsx) must not
+// treat the tab as logged in purely because getToken() is non-null.
+let fragmentHydrationPending = !!ssoToken
 
 let token: string | null = ssoToken ?? (API_MODE === 'ems' ? readStoredToken() : null)
 
@@ -82,6 +104,55 @@ export function setToken(next: string | null): void {
   }
 }
 
+// claude_prompt.txt ("v185"): true only until a fragment-delivered token
+// has actually been checked against GET /auth/me. App.tsx reads this (via
+// hasPendingFragmentAuth()) alongside getToken() to decide whether it's
+// safe to treat the tab as logged in, instead of trusting a token's mere
+// presence.
+export function hasPendingFragmentAuth(): boolean {
+  return fragmentHydrationPending
+}
+
+// Implement -- Quotation Permissions & Accepted Immutability, §7: the
+// login/SSO response already carries a `permissions` array (ems-backend's
+// SessionResult) -- this file previously discarded it entirely. Same
+// module-level-variable + sessionStorage-mirror shape as the token above,
+// for the same reason (survives this tab's own re-renders without a
+// context provider, consistent with how this file already handles the
+// token -- not a new authorization architecture, just the one array this
+// app already receives and never stored).
+let permissions: string[] = API_MODE === 'ems' ? readStoredPermissions() : []
+
+export function getPermissions(): string[] {
+  return permissions
+}
+
+export function setPermissions(next: string[] | undefined): void {
+  permissions = next ?? []
+  try {
+    sessionStorage.setItem(PERMISSIONS_KEY, JSON.stringify(permissions))
+  } catch {
+    // sessionStorage unavailable -- the in-memory value still works for
+    // the rest of this tab's session.
+  }
+}
+
+// UX-only convenience, used to show/hide/disable controls. Never a
+// security boundary on its own -- every permission this checks is
+// re-enforced server-side regardless of what this returns.
+export function hasPermission(code: string): boolean {
+  return permissions.includes(code)
+}
+
+// v179: the one place this file already cleared both token and permissions
+// together was the 401 handler below -- App.tsx's logout button cleared
+// only the token, leaving the previous account's permissions in memory and
+// in sessionStorage. Shared helper so the two can't drift apart again.
+export function clearSession(): void {
+  setToken(null)
+  setPermissions(undefined)
+}
+
 // claude_prompt.txt ("SSO: opening a direct link to another app asks for
 // login again"): sessionStorage (used above) is per-tab even within the
 // same origin -- a direct/bookmarked/pasted visit, or a plain new tab,
@@ -100,21 +171,123 @@ export async function attemptSsoHydrate(): Promise<boolean> {
     if (!response.ok) return false
     const result = (await response.json()) as LoginResult
     setToken(result.accessToken)
+    setPermissions(result.permissions)
     return true
   } catch {
     return false
   }
 }
 
-// claude_prompt.txt (this round): logout must also clear the shared
-// cookie server-side -- otherwise the next direct visit here (or to any
-// other app sharing this login) would silently sign back in via
-// attemptSsoHydrate() moments later. Best-effort: the caller clears its
-// own local token regardless of whether this resolves.
+export type MeResult = {
+  user?: { id: string; name?: string; email?: string }
+  roles?: string[]
+  permissions?: string[]
+}
+
+// claude_prompt.txt ("v185 -- Fix SSO Fragment Authentication & Permission
+// Hydration"): the SSO Fragment handoff's own hydration -- separate from
+// attemptSsoHydrate() above (the *cookie* path, for a direct/bookmarked
+// visit with no fragment and no token yet). A fragment token already came
+// with a real JWT, so this calls GET /auth/me with it as a Bearer header
+// -- the contract that actually accepts one; /auth/sso does not and
+// returns 401 for a Bearer-only caller with no session cookie. Resolves
+// true only once both authentication AND permission hydration succeed;
+// never throws. Single-shot: fragmentHydrationPending is cleared before
+// the request so a remount/retry can't re-fire it or loop.
+export async function hydrateFromSsoFragmentToken(): Promise<boolean> {
+  if (API_MODE !== 'ems' || !fragmentHydrationPending) return false
+  fragmentHydrationPending = false
+
+  try {
+    const result = await request<MeResult>(`${EMS_BASE}/auth/me`)
+    setPermissions(result.permissions)
+    return true
+  } catch {
+    clearSession()
+    return false
+  }
+}
+
+// claude_prompt.txt ("v189 -- Unified EMS & Quotation Authentication /
+// Shared Login Session"): a token already sitting in sessionStorage from
+// an earlier visit to THIS tab was never re-checked against the backend
+// on a plain refresh -- `token` being non-null was treated as sufficient
+// on its own, with permission hydration (and session revocation) only
+// ever discovered lazily, on whatever the next real API call happened to
+// be. ems-frontend's own equivalent (current-user.tsx's hydrate effect)
+// always calls GET /auth/me when a local token exists, every mount, for
+// exactly this reason -- this brings that same discipline here, closing
+// the gap "verify that stale frontend state cannot grant access" calls
+// out directly. On an actual rejection, request()'s own generic 401
+// handling has already cleared the session before this function's catch
+// runs (clearSession() + unauthorizedHandler()), so `token` is correctly
+// null by the time this resolves; on a network/timeout failure (never
+// reached the server), nothing was cleared and the existing session is
+// left in place rather than signed out on inconclusive evidence.
+async function verifyExistingSession(): Promise<boolean> {
+  try {
+    const result = await request<MeResult>(`${EMS_BASE}/auth/me`)
+    setPermissions(result.permissions)
+    return true
+  } catch {
+    return !!token
+  }
+}
+
+let bootstrapPromise: Promise<boolean> | null = null
+
+// claude_prompt.txt ("v185", extended "v189"): the one entry point
+// App.tsx's boot effect calls, now covering all three possible startup
+// states uniformly: a fragment token (hydrateFromSsoFragmentToken), an
+// existing stored token (verifyExistingSession, new this round), or
+// neither (attemptSsoHydrate, the cookie-based bridge). Branches on
+// `ssoToken`/`token` -- values fixed at module load or only mutated
+// synchronously before this function's first await -- rather than on a
+// flag read fresh per call, for the same StrictMode-safety reason as
+// before: React's dev-only mount -> cleanup -> mount double-invoke of the
+// calling effect must always observe the identical decision, never a
+// different bootstrap racing the one already in flight. Memoizing the
+// resulting promise means every invocation (StrictMode's extra one
+// included) always awaits the exact same bootstrap, so at most one
+// network call ever happens for a given tab load either way.
+export function bootstrapSsoAuth(): Promise<boolean> {
+  if (API_MODE !== 'ems') return Promise.resolve(true)
+  if (!bootstrapPromise) {
+    bootstrapPromise = ssoToken
+      ? hydrateFromSsoFragmentToken()
+      : token
+        ? verifyExistingSession()
+        : attemptSsoHydrate()
+  }
+  return bootstrapPromise
+}
+
+// claude_prompt.txt ("SSO: opening a direct link to another app asks for
+// login again"): logout must also clear the shared cookie server-side --
+// otherwise the next direct visit here (or to any other app sharing this
+// login) would silently sign back in via attemptSsoHydrate() moments
+// later. Best-effort: the caller clears its own local token regardless of
+// whether this resolves.
+//
+// claude_prompt.txt ("v189 -- Unified EMS & Quotation Authentication /
+// Shared Login Session"): now also sends the Bearer token (via
+// authHeaders(), not just the cookie) -- the backend's /auth/logout
+// identifies the caller from whichever is present to invalidate that
+// account's sessions server-side (see ems-backend's
+// AuthController.logout()), and the cookie alone wouldn't exist for a
+// tab that only ever held a token (e.g. arrived via the `#sso=` fragment
+// in an environment where the cookie didn't make it across). `keepalive`
+// lets the request actually complete even though the caller
+// (App.tsx's handleLogout) navigates away immediately afterward.
 export async function logoutSso(): Promise<void> {
   if (API_MODE !== 'ems') return
   try {
-    await fetch(`${EMS_BASE}/auth/logout`, { method: 'POST', credentials: 'include' })
+    await fetch(`${EMS_BASE}/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+      keepalive: true,
+      headers: authHeaders(),
+    })
   } catch {
     // best-effort
   }
@@ -173,7 +346,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     const message = await readableError(response)
 
     if (response.status === 401 && API_MODE === 'ems') {
-      setToken(null)
+      clearSession()
       unauthorizedHandler?.()
     }
 
@@ -216,6 +389,7 @@ function exchangeRateUrl(date: string): string {
 export type LoginResult = {
   accessToken: string
   user?: { id: string; name?: string; email?: string }
+  permissions?: string[]
 }
 
 // Cost & Profit report (claude_prompt.txt) -- mirrors
@@ -456,6 +630,14 @@ export const api = {
   updateQuotationStatus: (id: string, status: string): Promise<{ quotation: { status: string } }> =>
     request(quotationsUrl(`/${id}/status`), { method: 'PATCH', body: JSON.stringify({ status }) }),
 
+  // claude_prompt.txt ("v186 -- Quotation Authorization & Editing Workflow
+  // Refactor"): the only way to change a non-Draft quotation's data --
+  // creates a brand-new Draft copy server-side (QuotationService.
+  // createRevision, gated by sales.revise there); no request body, the
+  // source id and the authenticated caller are all the backend needs.
+  createRevision: (id: string): Promise<{ id: string; number: string; status: string; revisedFromId: string }> =>
+    request(quotationsUrl(`/${id}/revisions`), { method: 'POST' }),
+
   listItems: (): Promise<unknown[]> => request(itemsUrl()),
 
   getItem: (id: string): Promise<unknown> => request(itemsUrl(`/${id}`)),
@@ -469,12 +651,22 @@ export const api = {
 
   listExchangeRates: (date: string): Promise<unknown[]> => request(exchangeRateUrl(date)),
 
-  // claude_prompt.txt (this round): `credentials: 'include'` added -- this
-  // is the response that sets the shared `ems_sso` cookie (see
-  // ems-backend's AuthController.login()); without it the browser drops
-  // the Set-Cookie header on this cross-origin response.
-  login: (email: string, password: string): Promise<LoginResult> =>
-    request(`${EMS_BASE}/auth/login`, { method: 'POST', body: JSON.stringify({ email, password }), credentials: 'include' }),
+  // claude_prompt.txt ("v189 -- Unified EMS & Quotation Authentication"):
+  // `username`, not `email` -- confirmed live against the running
+  // ems-backend (apps/ems-api/src/modules/auth/dto/login.dto.ts has no
+  // `email` field at all, only `username`/`password`; main.ts's global
+  // ValidationPipe is `whitelist: true, forbidNonWhitelisted: true`) that
+  // sending `{ email, password }` here has always been rejected with a
+  // 400 ("property email should not exist") before ever reaching
+  // AuthService.login()'s credential check -- this app's manual login had
+  // been completely broken, not just differently labeled. ems-frontend's
+  // own login() (api/auth.ts) already sends `{ username, password }` to
+  // this exact endpoint; this now matches it exactly, including the field
+  // name, so both apps authenticate the same account the same way.
+  // `credentials: 'include'` (unchanged) is what lets this response's
+  // Set-Cookie actually land -- see ems-backend's AuthController.login().
+  login: (username: string, password: string): Promise<LoginResult> =>
+    request(`${EMS_BASE}/auth/login`, { method: 'POST', body: JSON.stringify({ username, password }), credentials: 'include' }),
 
   getCostProfit: (month: string, statuses: QuotationStatus[]): Promise<CostProfitReport> =>
     request(`${EMS_BASE}/sales/reports/cost-profit?month=${encodeURIComponent(month)}&statuses=${statuses.join(',')}`),

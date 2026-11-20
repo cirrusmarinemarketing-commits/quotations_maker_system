@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { api, attemptSsoHydrate, getToken, setUnauthorizedHandler, type CostProfitGroup, type CostProfitLine, type CostProfitProject, type CostProfitReport, type CostProfitTwoTotals, type QuotationStatus } from '../services/api'
+import { useEffect, useRef, useState } from 'react'
+import { api, bootstrapSsoAuth, setUnauthorizedHandler, type CostProfitGroup, type CostProfitLine, type CostProfitProject, type CostProfitReport, type CostProfitTwoTotals, type QuotationStatus } from '../services/api'
 import LoginScreen from './LoginScreen'
 import CostProfitDashboard from './CostProfitDashboard'
 import { generateCostProfitPDF } from '../utils/generateCostProfitPDF'
@@ -98,6 +98,22 @@ function formatStatusDate(dateStr: string): string {
 type Basis = 'quoted' | 'bank'
 type View = 'report' | 'dashboard'
 
+// claude_prompt.txt ("Restyle the Quotation List page ... and make Cost &
+// Profit open the specific quotation"), Part B: this page only ever fetches
+// one month at a time (api.getCostProfit(month, statuses)), so a deep link
+// from the list must carry both the target quotation's id and the month its
+// issueDate falls in -- the page has no way to search across months itself.
+// With no params (the existing overview link), this returns nulls and every
+// behavior below falls back to exactly what it did before this change.
+function readCostProfitLinkParams(): { quotationId: string | null; month: string | null } {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    return { quotationId: params.get('quotationId'), month: params.get('month') }
+  } catch {
+    return { quotationId: null, month: null }
+  }
+}
+
 function lineCost(line: { costQuoted: number | null; costBank: number | null; costKnown: boolean }, basis: Basis): number | null {
   if (!line.costKnown) return null
   return basis === 'quoted' ? line.costQuoted : line.costBank
@@ -173,13 +189,25 @@ function shippingRefSub(group: CostProfitGroup, line: CostProfitLine, rate: numb
 type RefRow = { group: CostProfitGroup; line: CostProfitLine; rate: number | null }
 
 export default function CostAndProfitPage() {
-  const [loggedIn, setLoggedIn] = useState(() => !!getToken())
-  // claude_prompt.txt ("SSO: opening a direct link to another app asks for
-  // login again"): see the matching block in App.tsx -- same reasoning,
-  // this page has its own independent `loggedIn` state.
-  const [checkingSso, setCheckingSso] = useState(() => !getToken())
+  // claude_prompt.txt ("v189 -- Unified EMS & Quotation Authentication /
+  // Shared Login Session"): was `!!getToken()` -- trusted a stored token
+  // on sight, with no server round trip at all and not even accounting
+  // for a still-pending fragment hydration. This page is reachable only
+  // by direct URL (no menu link, see the file header), so a stale or
+  // revoked token here would have shown this report with no verification
+  // whatsoever. Now starts `false`/`true` the same way App.tsx does, and
+  // defers entirely to bootstrapSsoAuth() -- see that function's own
+  // comment in api.ts and App.tsx's matching block for the full reasoning
+  // (this page has its own independent state, but the same logic).
+  const [loggedIn, setLoggedIn] = useState(false)
+  const [checkingSso, setCheckingSso] = useState(true)
   const [view, setView] = useState<View>('report')
-  const [month, setMonth] = useState<string>(currentMonth())
+  const [month, setMonth] = useState<string>(() => readCostProfitLinkParams().month || currentMonth())
+  // claude_prompt.txt (Part B): one-time "open to this quotation" intent
+  // from a list-row deep link. A ref, not state -- it is consumed inside
+  // the load() effect below and then cleared; it never needs to re-trigger
+  // a render or a re-fetch on its own.
+  const pendingFocusQuotationIdRef = useRef<string | null>(readCostProfitLinkParams().quotationId)
   const [basis, setBasis] = useState<Basis>('quoted')
   const [data, setData] = useState<CostProfitReport | null>(null)
   const [loading, setLoading] = useState(false)
@@ -193,14 +221,17 @@ export default function CostAndProfitPage() {
     return () => setUnauthorizedHandler(null)
   }, [])
 
-  // claude_prompt.txt (this round): same one-time SSO-bridge check as
-  // App.tsx -- this page is reachable only by direct URL (no menu link,
-  // see the file header), which makes it the single most common case this
-  // task is fixing.
+  // claude_prompt.txt ("v189"): delegates to the same memoized
+  // bootstrapSsoAuth() App.tsx uses -- covers a fragment token, an
+  // existing stored token (now actually re-verified via GET /auth/me
+  // instead of trusted on sight), and the cookie-based bridge, uniformly.
+  // This page is reachable only by direct URL (no menu link, see the file
+  // header), which makes a stale-token false positive here the single
+  // most realistic case this round is closing.
   useEffect(() => {
     if (loggedIn) return
     let cancelled = false
-    attemptSsoHydrate().then((ok) => {
+    bootstrapSsoAuth().then((ok) => {
       if (cancelled) return
       if (ok) setLoggedIn(true)
       setCheckingSso(false)
@@ -224,9 +255,26 @@ export default function CostAndProfitPage() {
         const report = await api.getCostProfit(month, ALL_STATUSES)
         if (cancelled) return
         setData(report)
-        // First project + its first quotation start expanded, only on first load for this fetch.
-        setExpandedProjects(new Set(report.projects[0] ? [projectKey(report.projects[0])] : []))
-        setExpandedQuotations(new Set(report.projects[0]?.quotations[0] ? [report.projects[0].quotations[0].id] : []))
+
+        // claude_prompt.txt (Part B): a list-row deep link wants THIS
+        // quotation expanded and focused instead of the default
+        // first-project/first-quotation. If it isn't found in this
+        // month's report (wrong month, deleted, etc.), fall through to
+        // the exact pre-existing default below -- never a crash or a
+        // blank state.
+        const targetId = pendingFocusQuotationIdRef.current
+        const targetProject = targetId
+          ? report.projects.find((project) => project.quotations.some((q) => q.id === targetId))
+          : undefined
+
+        if (targetProject) {
+          setExpandedProjects(new Set([projectKey(targetProject)]))
+          setExpandedQuotations(new Set([targetId as string]))
+        } else {
+          // First project + its first quotation start expanded, only on first load for this fetch.
+          setExpandedProjects(new Set(report.projects[0] ? [projectKey(report.projects[0])] : []))
+          setExpandedQuotations(new Set(report.projects[0]?.quotations[0] ? [report.projects[0].quotations[0].id] : []))
+        }
       } catch (err) {
         if (cancelled) return
         const message = err instanceof Error ? err.message : 'Failed to load report'
@@ -247,8 +295,31 @@ export default function CostAndProfitPage() {
     }
   }, [month, loggedIn])
 
+  // claude_prompt.txt (Part B): scrolls the deep-linked quotation into view
+  // once its panel actually exists in the DOM (after `data`/the expanded
+  // sets above have rendered), then consumes the ref so this never fires
+  // again for this page instance -- not on a month change, not on a
+  // project/quotation the user manually toggles afterward.
+  useEffect(() => {
+    const targetId = pendingFocusQuotationIdRef.current
+    if (!targetId || !data) return
+
+    const found = data.projects.some((project) => project.quotations.some((q) => q.id === targetId))
+    if (found) {
+      requestAnimationFrame(() => {
+        document.getElementById(`cp-quotation-${targetId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    }
+    pendingFocusQuotationIdRef.current = null
+  }, [data])
+
+  // claude_prompt.txt ("v189"): checked before `!loggedIn`, same reasoning
+  // as App.tsx's matching gate -- `loggedIn` starts `false` unconditionally
+  // now, so this must not be nested inside `!loggedIn` or a stored token
+  // would let the report render before verifyExistingSession() resolves.
+  if (checkingSso) return null
+
   if (!loggedIn) {
-    if (checkingSso) return null
     return <LoginScreen onLoggedIn={() => setLoggedIn(true)} />
   }
 
@@ -411,7 +482,7 @@ export default function CostAndProfitPage() {
                             })
 
                             return (
-                              <div className="cp-quotation-panel" key={q.id}>
+                              <div className="cp-quotation-panel" id={`cp-quotation-${q.id}`} key={q.id}>
                                 {/* claude_prompt.txt ("... export one quotation as PDF"): the PDF
                                     button is a real <button>, nested inside this header -- an
                                     outer <button> can't legally contain another, so this row is a

@@ -1,15 +1,29 @@
 import { useState, type FormEvent } from 'react'
-import { api, setToken } from '../services/api'
+import { api, setToken, setPermissions } from '../services/api'
 
 type LoginScreenProps = {
   onLoggedIn: () => void
 }
 
-// Phase 4, ems mode only. Minimal: email + password, the same auth
-// endpoint ems-frontend uses (POST /auth/login). Reuses the app's
-// existing .card/.form-group/.btn classes -- no new styling system.
+// Phase 4, ems mode only. Username + password, the same auth endpoint and
+// identifier ems-frontend uses (POST /auth/login, { username, password }).
+//
+// claude_prompt.txt ("v189 -- Unified EMS & Quotation Authentication /
+// Shared Login Session"), §2: previously sent `{ email, password }` here
+// (see api.ts's own history) -- confirmed live against ems-backend that
+// this was always rejected with a 400 ("property email should not
+// exist") before the credential check even ran, since
+// auth/dto/login.dto.ts only ever declared `username`. Not merely a label
+// mismatch: this app's manual login had never actually worked. Field
+// renamed end to end (state, input, label, autoComplete, api.ts's
+// login() signature) to match EMS's own identifier, not just its text.
+//
+// claude_prompt.txt ("v187 -- Quotation Login UI Alignment with EMS"):
+// visual structure still matches ems-frontend/src/pages/auth/
+// LoginPage.tsx (full-viewport centered card, icon, title/subtitle,
+// full-width submit button) -- unchanged this round.
 function LoginScreen({ onLoggedIn }: LoginScreenProps) {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -20,8 +34,9 @@ function LoginScreen({ onLoggedIn }: LoginScreenProps) {
     setSubmitting(true)
 
     try {
-      const result = await api.login(email.trim(), password)
+      const result = await api.login(username.trim(), password)
       setToken(result.accessToken)
+      setPermissions(result.permissions)
       onLoggedIn()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to log in')
@@ -31,57 +46,59 @@ function LoginScreen({ onLoggedIn }: LoginScreenProps) {
   }
 
   return (
-    <div className="app">
-      <header className="page-header">
-        <div>
-          <h1>Quotation</h1>
-          <p>Sign in to continue (ems mode)</p>
-        </div>
-      </header>
-
-      <main className="quotation-page login-page">
-        <section className="card login-card">
-          <div className="section-header">
-            <h2>Sign in</h2>
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-card-header">
+          <div className="login-card-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17.5 19H9a5 5 0 0 1-1-9.9A6 6 0 0 1 19 9.5a4.5 4.5 0 0 1-1.5 9.5Z" />
+            </svg>
           </div>
 
-          <form onSubmit={(event) => void handleSubmit(event)}>
-            <div className="form-group">
-              <label>Email</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="username"
-                required
-              />
-            </div>
+          <h1 className="login-card-title">
+            Cirrus<span className="login-card-accent"> Quotation</span>
+          </h1>
 
-            <div className="form-group">
-              <label>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                required
-              />
-            </div>
+          <p className="login-card-subtitle">Sign in to continue</p>
+        </div>
 
-            {error && <p className="quotation-actions-error">{error}</p>}
+        <form className="login-card-form" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="form-group">
+            <label htmlFor="login-username">Username</label>
+            <input
+              id="login-username"
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="username"
+              autoFocus
+              required
+            />
+          </div>
 
-            <div className="quotation-actions-buttons">
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={submitting}
-              >
-                {submitting ? 'Signing in…' : 'Sign in'}
-              </button>
-            </div>
-          </form>
-        </section>
-      </main>
+          <div className="form-group">
+            <label htmlFor="login-password">Password</label>
+            <input
+              id="login-password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+
+          {error && <p className="login-error" role="alert">{error}</p>}
+
+          <button
+            type="submit"
+            className="btn btn-primary login-submit"
+            disabled={submitting}
+          >
+            {submitting ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </div>
     </div>
   )
 }
